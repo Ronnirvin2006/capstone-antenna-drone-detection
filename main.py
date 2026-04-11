@@ -1,5 +1,5 @@
 """
-main.py  —  Anti-drone system entry point.
+main.py  â€”  Anti-drone system entry point.
 
 WHAT THIS DOES:
   Instantiates and starts every module in the correct order:
@@ -10,10 +10,10 @@ WHAT THIS DOES:
     5. SDR pipeline (FMCW radar)
     6. Visual pipeline (YOLOv11n + ByteTrack)
     7. Fusion engine (SDR + visual correlation)
-    8. Identity classifier (ESP32 serial → OpenDroneID)
+    8. Identity classifier (ESP32 serial â†’ OpenDroneID)
     9. Jammer controller (action decision + GPIO)
 
-  Everything communicates ONLY through the event bus — no module imports
+  Everything communicates ONLY through the event bus â€” no module imports
   another module.  This makes it trivially easy to:
     - Disable one sensor: just comment out its start() call.
     - Run in simulation: each module has a sim mode when hardware isn't present.
@@ -41,7 +41,7 @@ import sys
 import time
 import logging
 
-# ── Internal imports (project modules) ──────────────────────────────────────
+# â”€â”€ Internal imports (project modules) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Note: use sys.path manipulation so this works when run from the project root
 import os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -70,19 +70,19 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # ── 1. Logging ────────────────────────────────────────────────────────────
+    # â”€â”€ 1. Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Must be set up BEFORE any logger = logging.getLogger(__name__) calls.
     setup_logging(log_dir="logs", level="INFO")
     logger = logging.getLogger("main")
     logger.info("=" * 60)
-    logger.info("  Anti-Drone System  —  starting up")
+    logger.info("  Anti-Drone System  â€”  starting up")
     logger.info("=" * 60)
 
-    # ── 2. Config ─────────────────────────────────────────────────────────────
+    # â”€â”€ 2. Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     cfg = load_config(args.config)
     logger.info(f"Config loaded from '{args.config}'")
 
-    # ── 3. Event bus ──────────────────────────────────────────────────────────
+    # â”€â”€ 3. Event bus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # All modules share ONE bus instance.  It lives here in main so nothing
     # else needs to import it as a global.
     bus = EventBus()
@@ -103,9 +103,9 @@ def main():
             logger.info(f"[JAMMER OFF] reason='{payload.get('reason')}'")
     bus.subscribe("jammer.trigger", _log_jammer)
 
-    # ── 4. Instantiate all modules ────────────────────────────────────────────
+    # â”€â”€ 4. Instantiate all modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Instantiation sets up subscriptions; nothing starts running yet.
-    logger.info("Instantiating modules …")
+    logger.info("Instantiating modules â€¦")
 
     mux       = MUXController(cfg["mux"], bus)
     sdr       = SDRPipeline(cfg["sdr"], bus)
@@ -114,8 +114,8 @@ def main():
     identity  = IdentityClassifier(cfg["identity"], bus)
     jammer    = JammerController(cfg["jammer"], cfg["identity"], bus)
 
-    # ── 5. Start modules (order matters — sensors before decision layers) ──────
-    logger.info("Starting modules …")
+    # â”€â”€ 5. Start modules (order matters â€” sensors before decision layers) â”€â”€â”€â”€â”€â”€
+    logger.info("Starting modules â€¦")
 
     mux.start()          # antenna switcher background thread
     sdr.connect()        # open SDR hardware connection
@@ -127,13 +127,13 @@ def main():
 
     visual.start()       # opens cameras, starts YOLO thread
     identity.start()     # opens ESP32 serial port, starts reader thread
-    # fusion and jammer don't have their own threads — they react via bus callbacks
+    # fusion and jammer don't have their own threads â€” they react via bus callbacks
 
     logger.info("All modules running.  Press Ctrl-C to stop.")
 
-    # ── 6. Graceful shutdown on Ctrl-C / SIGTERM ──────────────────────────────
+    # â”€â”€ 6. Graceful shutdown on Ctrl-C / SIGTERM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _shutdown(sig, frame):
-        logger.info("Shutdown signal received — stopping all modules …")
+        logger.info("Shutdown signal received â€” stopping all modules â€¦")
 
         # Safety first: jammer OFF before anything else
         jammer.cleanup()
@@ -150,7 +150,7 @@ def main():
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    # ── 7. Keep main thread alive ─────────────────────────────────────────────
+    # â”€â”€ 7. Keep main thread alive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # The actual work happens in daemon threads/callbacks triggered by the bus.
     # Main just waits so those threads keep running.
     while True:
