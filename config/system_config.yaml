@@ -1,0 +1,78 @@
+# config/system_config.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Central configuration for the anti-drone system.
+# Every module reads ONLY from this file — no hard-coded values anywhere else.
+# Edit this file to tune thresholds, ports, paths without touching code.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── MUX controller ────────────────────────────────────────────────────────────
+mux:
+  antennas:                     # GPIO BCM pin numbers for each antenna switch
+    yagi_433:   17              # Yagi-Uda 433 MHz → GPIO 17
+    lpda_915:   27              # LPDA 915 MHz–1.6 GHz → GPIO 27
+    vivaldi_24: 22              # Vivaldi 2.4/5.8 GHz → GPIO 22
+  scan_interval_sec: 10         # How long each antenna is active during round-robin
+  lock_drop_threshold_sec: 3    # Seconds below detect threshold before unlock
+  detect_rssi_min_db: -85       # RSSI floor to consider "detected"
+
+# ── SDR / FMCW ────────────────────────────────────────────────────────────────
+sdr:
+  device_uri: "ip:192.168.2.1"  # ADALM-Pluto URI (USB: "usb:" or IP: "ip:...")
+  sample_rate_hz: 10_000_000    # 10 MSPS
+  bandwidth_hz:   10_000_000
+  tx_freq_hz:     2_400_000_000 # FMCW centre TX frequency (2.4 GHz)
+  rx_freq_hz:     2_400_000_000 # RX centre (same for homodyne)
+  tx_gain_db:     -10           # TX attenuation (negative = less power)
+  rx_gain_db:     30            # LNA gain
+  chirp_duration_sec: 0.001     # 1 ms chirp
+  fft_size:       1024          # FFT bins for beat-frequency analysis
+  range_detect_threshold: 0.15  # Normalised FFT amplitude floor for detection
+  max_range_m:    500           # Maximum detection range in metres
+
+# ── Visual detection ──────────────────────────────────────────────────────────
+visual:
+  model_path: "models/weights/best.pt"   # YOLOv11n weights (relative to project root)
+  camera_rgb_index: 0                    # OpenCV camera index for RGB camera
+  camera_ir_index:  1                    # OpenCV camera index for IR camera (set -1 to disable)
+  confidence_threshold: 0.30            # Minimum YOLO confidence to count as detection
+  iou_threshold: 0.45                   # ByteTrack IoU threshold
+  tracker_config: "bytetrack.yaml"      # ByteTrack config file name
+  output_video: "logs/tracked_output.mp4"
+  # Rough range estimation from bounding-box size:
+  # range_est_m = focal_px * real_wingspan_m / bbox_width_px
+  focal_length_px: 800                  # Camera focal length in pixels (calibrate!)
+  drone_wingspan_m: 0.5                 # Assumed drone wingspan for range est. (metres)
+  display_window: true                  # Show live OpenCV window (false on headless)
+
+# ── Identity / OpenDroneID ────────────────────────────────────────────────────
+identity:
+  serial_port: "/dev/ttyUSB0"   # USB serial port where ESP32 sends parsed packets
+  baud_rate: 115200
+  friendly_ids_dir: "data/friendly_ids"  # Folder of JSON files listing friendly drone IDs
+  # Classification rules (in priority order):
+  #   1. If drone_id is in the friendly list → FRIENDLY
+  #   2. If packet has valid operator_id matching registered list → FRIENDLY
+  #   3. Otherwise → NON_FRIENDLY
+  # Any drone broadcasting with no BLE packet at all = UNKNOWN (treated as threat)
+  unknown_is_threat: true
+
+# ── Fusion engine ─────────────────────────────────────────────────────────────
+fusion:
+  window_sec: 2.0               # Sliding time window for multi-sensor correlation
+  # Require BOTH SDR and visual to agree within window to confirm presence
+  require_both: true
+  range_disagreement_threshold_m: 30   # Alert if SDR vs visual range disagree by more
+
+# ── Jammer controller ─────────────────────────────────────────────────────────
+jammer:
+  control_pin: 4                # GPIO BCM pin to enable/disable jammer hardware
+  # Safety interlock: jammer ONLY fires if:
+  #   - fusion.confirmed event received  AND
+  #   - identity.result says NON_FRIENDLY or UNKNOWN (when unknown_is_threat=true)
+  cooldown_sec: 5               # Minimum seconds between consecutive jammer activations
+  max_active_sec: 30            # Auto-shutoff after this many seconds (safety limit)
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  log_dir: "logs"
+  console_level: "INFO"         # DEBUG / INFO / WARNING / ERROR

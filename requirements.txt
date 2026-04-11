@@ -1,0 +1,21 @@
+# requirements.txt  —  Install all Python dependencies with:
+#   pip install -r requirements.txt
+
+# ── Core ──────────────────────────────────────────────────────────────────────
+pyyaml>=6.0         # config/system_config.yaml parsing
+
+# ── SDR / FMCW ────────────────────────────────────────────────────────────────
+pyadi-iio>=0.0.15   # ADALM-Pluto driver (wraps libiio)
+numpy>=1.24         # FFT, signal processing
+scipy>=1.10         # Hanning window, signal utilities
+
+# ── Visual detection ──────────────────────────────────────────────────────────
+ultralytics>=8.0    # YOLOv11n + ByteTrack (includes torch requirement)
+opencv-python>=4.8  # Camera capture and frame drawing
+torch>=2.0          # PyTorch backend for YOLO (CPU or CUDA)
+
+# ── Identity / Serial ─────────────────────────────────────────────────────────
+pyserial>=3.5       # USB serial communication with ESP32
+
+# ── GPIO (Raspberry Pi only — skip on dev machines) ──────────────────────────
+# RPi.GPIO>=0.7.1   # Uncomment on Raspberry Pi

@@ -1,0 +1,15 @@
+{
+  "_comment": "Add your authorised drone IDs and operator IDs here.",
+  "_comment2": "The identity classifier loads ALL .json files in this folder at startup.",
+  "_comment3": "You can hot-reload without restart by calling identity.reload_friendly_ids()",
+
+  "drone_ids": [
+    "SN-FRIENDLY-001",
+    "SIM-FRIENDLY-001"
+  ],
+
+  "operator_ids": [
+    "GBR-OP-AIAERO001",
+    "GBR-OP-SIM"
+  ]
+}
