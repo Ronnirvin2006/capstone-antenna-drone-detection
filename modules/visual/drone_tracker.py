@@ -127,7 +127,7 @@ class DroneDetectionSystem:
 
 if __name__ == "__main__":
     system = DroneDetectionSystem(
-        model_name="runs/detect/train4/weights/best.pt",
+        model_name="A:\Downloads\anti_drone_system (1)\anti_drone_system\models\weights\best.pt",
         video_source="multi_drone2.mp4",
         output_path="tracked_output.mp4"
     )

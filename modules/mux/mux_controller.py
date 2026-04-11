@@ -37,29 +37,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Try to import RPi.GPIO; if not on a Pi just use a stub so the code still
-# runs on a development machine without hardware.
-try:
-    import RPi.GPIO as GPIO
-    GPIO.setmode(GPIO.BCM)
-    _HAS_GPIO = True
-except ImportError:
-    logger.warning("RPi.GPIO not available — running in SIMULATION mode (no real GPIO)")
-    _HAS_GPIO = False
-
-
-class _GPIOStub:
-    """Fake GPIO for development/testing on non-Pi hardware."""
-    OUT = "OUT"
-    BCM = "BCM"
-
-    def setmode(self, mode): pass
-    def setup(self, pin, mode): pass
-    def output(self, pin, state): logger.debug(f"[GPIO-STUB] pin {pin} → {state}")
-    def cleanup(self): pass
-
-
-_gpio = GPIO if _HAS_GPIO else _GPIOStub()
+from modules.shared.gpio_stub import gpio as _gpio, GPIO_AVAILABLE as _HAS_GPIO
 
 
 class MUXController:

@@ -34,23 +34,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    import RPi.GPIO as GPIO
-    GPIO.setmode(GPIO.BCM)
-    _HAS_GPIO = True
-except ImportError:
-    _HAS_GPIO = False
-
-
-class _GPIOStub:
-    OUT = "OUT"
-    def setmode(self, m): pass
-    def setup(self, p, m): pass
-    def output(self, p, s): logger.debug(f"[GPIO-STUB] jammer pin {p} → {'ON' if s else 'OFF'}")
-    def cleanup(self): pass
-
-
-_gpio = GPIO if _HAS_GPIO else _GPIOStub()
+from modules.shared.gpio_stub import gpio as _gpio, GPIO_AVAILABLE as _HAS_GPIO
 
 
 class JammerController:
