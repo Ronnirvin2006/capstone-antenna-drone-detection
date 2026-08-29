@@ -7,6 +7,7 @@ const statsText = document.querySelector("#statsText");
 const peakLog = document.querySelector("#peakLog");
 const processLog = document.querySelector("#processLog");
 const sourceText = document.querySelector("#sourceText");
+const displayState = new Map();
 
 function makeCard(band) {
   const fragment = template.content.cloneNode(true);
@@ -59,8 +60,21 @@ function drawWaterfall(canvas, rows) {
   }
 }
 
+function smoothRow(key, row) {
+  if (!row || !row.length) return [];
+  const previous = displayState.get(key);
+  if (!previous || previous.length !== row.length) {
+    displayState.set(key, row.slice());
+    return row;
+  }
+  const alpha = 0.28;
+  const next = row.map((value, index) => previous[index] * (1 - alpha) + value * alpha);
+  displayState.set(key, next);
+  return next;
+}
+
 function drawWaveform(canvas, band) {
-  const row = band.waveform || [];
+  const row = smoothRow(band.key, band.waveform || []);
   const ctx = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;

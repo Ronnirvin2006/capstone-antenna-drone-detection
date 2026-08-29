@@ -1,7 +1,7 @@
 # Antenna Drone Detection System
 
-Interactive SDR dashboard for viewing RF waterfall activity using fabricated
-antennas connected through an RF MUX to a HackRF One.
+Interactive SDR dashboard for viewing the 2.4 GHz RF waveform and waterfall
+using a Vivaldi antenna connected to a HackRF One.
 
 This repository was copied from the earlier capstone anti-drone system and is
 now being continued as a receive-only RF monitoring project. The old modules
@@ -23,11 +23,7 @@ three waterfall slots and updates them in a scan sequence.
 
 | Slot | Antenna | Main Use |
 |---|---|---|
-| 433 MHz | Yagi-Uda 433 MHz | 433 MHz telemetry / ISM activity |
-| 915 MHz | LPDA 915 MHz to 1.6 GHz | 902-928 MHz links |
-| GPS / GNSS | LPDA 915 MHz to 1.6 GHz | GPS L5, GPS L2, GPS L1 |
-| 2.4 GHz | Vivaldi 2 GHz to 6 GHz | 2.4 GHz control / WiFi-like links |
-| 5.8 GHz | Vivaldi 2 GHz to 6 GHz | 5.8 GHz video/control links |
+| 2.4 GHz Drone Band | Vivaldi 2 GHz to 6 GHz | 2.4 GHz control / WiFi-like links |
 
 ## Run The Dashboard
 
@@ -59,8 +55,9 @@ http://127.0.0.1:8080
 
 ## What Works Now
 
-- Five Gqrx-style waterfall graph slots.
-- Fixed panes for 433 MHz, 915 MHz, GPS/GNSS, 2.4 GHz, and 5.8 GHz.
+- One large 2.4 GHz spectrum waveform.
+- One wide 2.4 GHz waterfall below the waveform.
+- 2400 MHz centered in the graph.
 - Live HackRF sweep mode using `hackrf_sweep`.
 - Peak readout for strong visible carriers.
 - Backend gain/filter options for LNA, VGA, RF amp, bin width, and smoothing.
@@ -81,7 +78,7 @@ a time.
 The default live view is focused on 2.4 GHz with 2400 MHz in the centre:
 
 ```text
-2358-2442 MHz
+2300-2500 MHz
 ```
 
 Lower noise / less gain:

@@ -1,10 +1,9 @@
 """
 Gqrx-style RF waterfall monitor for the antenna drone-detection project.
 
-This version is intentionally an RF viewer, not a drone classifier. It scans
-fixed useful bands with HackRF One and displays waterfall panes for:
-
-  433 MHz, 915 MHz, GPS/GNSS, 2.4 GHz, and 5.8 GHz.
+This version is intentionally an RF viewer, not a drone classifier. It scans a
+single 2.4 GHz window with HackRF One and displays a spectrum waveform plus a
+wide waterfall.
 
 Detection/classification will be added later after the RF viewing stage is
 stable and the MUX wiring is final.
@@ -34,7 +33,7 @@ class MonitorBand:
     low_mhz: float
     high_mhz: float
     markers_mhz: list[float]
-    rows: Deque[list[float]] = field(default_factory=lambda: deque(maxlen=180))
+    rows: Deque[list[float]] = field(default_factory=lambda: deque(maxlen=300))
     peaks: list[dict] = field(default_factory=list)
     noise_floor_db: float = -100.0
     peak_power_db: float = -100.0
@@ -327,44 +326,12 @@ def normalize_db_fixed(raw_db_row: list[float | None], db_min: float, db_max: fl
 def make_bands() -> list[MonitorBand]:
     return [
         MonitorBand(
-            key="mhz433",
-            label="433 MHz",
-            antenna="Yagi-Uda 433 MHz",
-            low_mhz=420,
-            high_mhz=450,
-            markers_mhz=[433.05, 433.92, 434.45],
-        ),
-        MonitorBand(
-            key="mhz915",
-            label="915 MHz",
-            antenna="LPDA 915 MHz-1.6 GHz",
-            low_mhz=902,
-            high_mhz=928,
-            markers_mhz=[915.0, 918.0, 922.0],
-        ),
-        MonitorBand(
-            key="gps",
-            label="GPS / GNSS",
-            antenna="LPDA 915 MHz-1.6 GHz",
-            low_mhz=1160,
-            high_mhz=1605,
-            markers_mhz=[1176.45, 1227.60, 1575.42],
-        ),
-        MonitorBand(
             key="ghz24",
-            label="2.4 GHz",
+            label="2.4 GHz Drone Band",
             antenna="Vivaldi 2-6 GHz",
-            low_mhz=2358,
-            high_mhz=2442,
-            markers_mhz=[2400, 2412, 2437],
-        ),
-        MonitorBand(
-            key="ghz58",
-            label="5.8 GHz",
-            antenna="Vivaldi 2-6 GHz",
-            low_mhz=5725,
-            high_mhz=5875,
-            markers_mhz=[5745, 5785, 5805, 5825],
+            low_mhz=2300,
+            high_mhz=2500,
+            markers_mhz=[2300, 2400, 2483.5, 2500],
         ),
     ]
 
@@ -466,8 +433,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--live", action="store_true", help="Read real spectrum data from HackRF")
     parser.add_argument("--hackrf-vivaldi", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--sweep-start", type=int, default=2358, help="Sweep start in MHz")
-    parser.add_argument("--sweep-stop", type=int, default=2442, help="Sweep stop in MHz")
+    parser.add_argument("--sweep-start", type=int, default=2300, help="Sweep start in MHz")
+    parser.add_argument("--sweep-stop", type=int, default=2500, help="Sweep stop in MHz")
     parser.add_argument("--bin-width", type=int, default=1_000_000, help="hackrf_sweep bin width in Hz")
     parser.add_argument("--lna", type=int, default=16, help="HackRF LNA/IF gain in dB")
     parser.add_argument("--vga", type=int, default=20, help="HackRF VGA/baseband gain in dB")
