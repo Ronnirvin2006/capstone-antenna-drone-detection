@@ -25,9 +25,9 @@ body {
 }
 
 .app-shell {
-  width: min(1800px, calc(100% - 28px));
+  width: min(1920px, calc(100% - 20px));
   margin: 0 auto;
-  padding: 24px 0 32px;
+  padding: 10px 0 18px;
 }
 
 .topbar {
@@ -46,8 +46,10 @@ p {
 }
 
 h1 {
-  font-size: clamp(24px, 3vw, 40px);
-  font-weight: 760;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: clamp(34px, 4.5vw, 68px);
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .topbar p,
@@ -80,103 +82,65 @@ h1 {
   font-size: 22px;
 }
 
-.actions {
+.toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 18px 0;
+  gap: 6px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--line);
 }
 
-.action-button {
-  min-height: 40px;
-  padding: 0 14px;
+.tool-button {
+  min-height: 30px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
+  border-radius: 3px;
+  background: #22272b;
   color: var(--text);
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.action-button.active {
+.tool-button.active {
   border-color: var(--cyan);
   background: #14313a;
+}
+
+.receiver-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 10px;
+  align-items: start;
+  padding-top: 10px;
 }
 
 .waterfall-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
 }
 
 .waterfall-card {
   min-width: 0;
-  padding: 16px;
-  background: var(--panel);
+  padding: 0;
+  background: #050607;
   border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.waterfall-card.active {
-  border-color: var(--cyan);
-}
-
-.waterfall-card.suspicious {
-  border-color: var(--red);
-}
-
-.card-head {
-  min-height: 58px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 12px;
-}
-
-.card-head h2 {
-  font-size: 22px;
-}
-
-.card-head p {
-  margin-top: 3px;
-  font-size: 13px;
-}
-
-.pill {
-  align-self: start;
-  white-space: nowrap;
-  padding: 5px 8px;
-  border-radius: 999px;
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.waterfall-card.active .pill {
-  color: var(--cyan);
-}
-
-.waterfall-card.suspicious .pill {
-  color: var(--red);
 }
 
 canvas {
   display: block;
   width: 100%;
   background: #02070b;
-  border: 1px solid #26313a;
-  border-radius: 4px;
+  border: 0;
+  border-radius: 0;
 }
 
 .spectrum-canvas {
-  aspect-ratio: 6 / 1;
-  margin-bottom: 8px;
+  aspect-ratio: 7.5 / 1;
+  border-bottom: 1px solid #303840;
 }
 
 .waterfall-canvas {
-  aspect-ratio: 3 / 1;
+  aspect-ratio: 2.5 / 1;
 }
 
 .scale-row,
@@ -187,6 +151,8 @@ canvas {
   gap: 8px;
   padding-top: 9px;
   font-size: 12px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .marker-row {
@@ -201,6 +167,60 @@ canvas {
   border-radius: 8px;
 }
 
+.side-panel {
+  min-height: 700px;
+  padding: 8px;
+  background: #e6e6e6;
+  color: #050505;
+  border: 1px solid #a8a8a8;
+}
+
+.side-panel h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.side-panel label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+  color: #050505;
+  font-size: 14px;
+}
+
+.side-panel label span {
+  min-width: 120px;
+  padding: 3px 6px;
+  background: #fff;
+  border: 1px solid #b8b8b8;
+  text-align: right;
+}
+
+.readout {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #1f2023;
+  color: #f1f1f1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 28px;
+  letter-spacing: 9px;
+  text-align: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0;
+}
+
+.tabs button {
+  flex: 1;
+  min-height: 30px;
+  border: 1px solid #aaa;
+  background: #f7f7f7;
+}
+
 .event-strip h2 {
   margin-bottom: 10px;
   font-size: 18px;
@@ -210,6 +230,16 @@ canvas {
   min-height: 44px;
   display: grid;
   gap: 8px;
+}
+
+.side-panel .event-log {
+  min-height: 0;
+}
+
+.compact .event-item {
+  background: #f7f7f7;
+  color: #050505;
+  border-left-color: #c27d00;
 }
 
 .process-log {
@@ -243,6 +273,12 @@ canvas {
   font-size: 12px;
 }
 
+.side-panel .log-item {
+  background: #f7f7f7;
+  color: #050505;
+  border-left-color: #888;
+}
+
 .log-item.debug {
   border-left-color: var(--cyan);
 }
@@ -258,6 +294,10 @@ canvas {
 
 @media (max-width: 1100px) {
   .waterfall-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .receiver-layout {
     grid-template-columns: 1fr;
   }
 

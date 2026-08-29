@@ -16,8 +16,8 @@ LPDA 915 MHz-1.6 GHz  -> RF MUX -> HackRF One -> Laptop/System
 Vivaldi 2 GHz-6 GHz  /
 ```
 
-The HackRF can observe only one MUX path at a time, so the dashboard displays
-three waterfall slots and updates them in a scan sequence.
+The current dashboard is focused only on the Vivaldi + HackRF path for a
+Gqrx-like 2.4 GHz display. MUX control and the other antennas will come later.
 
 ## Antenna Bands
 
@@ -41,7 +41,7 @@ For the current dashboard only, use the lightweight install:
 pip install -r requirements-dashboard.txt
 ```
 
-Start the app:
+Start the offline app:
 
 ```bash
 python antenna_dashboard.py
@@ -58,9 +58,9 @@ http://127.0.0.1:8080
 - One large 2.4 GHz spectrum waveform.
 - One wide 2.4 GHz waterfall below the waveform.
 - 2400 MHz centered in the graph.
-- Live HackRF sweep mode using `hackrf_sweep`.
+- Live HackRF IQ mode using `hackrf_transfer`.
 - Peak readout for strong visible carriers.
-- Backend gain/filter options for LNA, VGA, RF amp, bin width, and smoothing.
+- Backend gain/filter options for LNA, VGA, RF amp, sample rate/span, FFT size, and smoothing.
 - Buttons for Waterfall, Peak Hold, Filters, RFID Detection, and Video Detection.
 
 By default the app starts in offline mode. It does not claim drone detection or
@@ -69,17 +69,21 @@ classification.
 For real HackRF waterfall scanning:
 
 ```bash
-python antenna_dashboard.py --live
+python antenna_dashboard.py --live --backend iq --center-hz 2400000000 --sample-rate 10000000 --fft-size 1024
 ```
 
 Close Gqrx before running live mode because only one program can use HackRF at
 a time.
 
-The default live view is focused on 2.4 GHz with 2400 MHz in the centre:
+The default IQ live view is focused on 2.4 GHz with 2400 MHz in the centre:
 
 ```text
-2300-2500 MHz
+2395-2405 MHz
 ```
+
+That 10 MHz span is similar to the Gqrx-style view. HackRF cannot show
+100 MHz left and 100 MHz right as one live IQ view; for that, the app must use
+slower sweep mode.
 
 Lower noise / less gain:
 
@@ -96,11 +100,11 @@ python antenna_dashboard.py --live --lna 24 --vga 28 --db-min -90 --db-max -35
 Sharper waterfall bins:
 
 ```bash
-python antenna_dashboard.py --live --bin-width 1000000
+python antenna_dashboard.py --live --fft-size 2048
 ```
 
-The browser render loop targets 60 Hz. Actual new RF rows depend on how fast
-`hackrf_sweep` returns data for the selected span.
+The browser render loop targets 60 Hz, and the IQ backend publishes waterfall
+rows at about 60 Hz.
 
 ## Next Build Steps
 
@@ -109,43 +113,6 @@ The browser render loop targets 60 Hz. Actual new RF rows depend on how fast
 3. Detect new/hopping signals using baseline noise and peak tracking.
 4. Estimate number of suspicious emitters from separated signal clusters.
 5. Implement RFID/Remote ID and video detection buttons as live modules.
-
-## Train With Your Drone
-
-Close the dashboard before recording training data. Gqrx must also be closed.
-
-Record background first:
-
-```bash
-python collect_rf_training_data.py --label background --seconds 30
-```
-
-Then turn on the controller and drone, keep the antenna pointed at it, and run:
-
-```bash
-python collect_rf_training_data.py --label drone --seconds 30
-```
-
-Optional negative examples help reduce false alerts:
-
-```bash
-python collect_rf_training_data.py --label controller --seconds 30
-python collect_rf_training_data.py --label wifi --seconds 30
-```
-
-Train the model:
-
-```bash
-python train_signal_classifier.py
-```
-
-Then start live scanning:
-
-```bash
-python antenna_dashboard.py --hackrf-vivaldi
-```
-
-The dashboard automatically uses `models/signal_classifier.json` when it exists.
 
 ## Earlier Capstone Reference
 

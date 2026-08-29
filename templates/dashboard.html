@@ -10,7 +10,7 @@
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <h1>RF Waterfall Monitor</h1>
+          <h1 id="frequencyText">2.400.000.000</h1>
           <p id="sourceText">2.4 GHz centered RF waveform and waterfall</p>
         </div>
         <section class="alert-panel quiet">
@@ -21,36 +21,41 @@
         </section>
       </header>
 
-      <section class="actions" aria-label="Detection controls">
-        <button class="action-button active" type="button">Waterfall</button>
-        <button class="action-button" type="button">Peak Hold</button>
-        <button class="action-button" type="button">Filters</button>
-        <button class="action-button" type="button">RFID Detection</button>
-        <button class="action-button" type="button">Video Detection</button>
+      <section class="toolbar" aria-label="Receiver toolbar">
+        <button class="tool-button active" type="button">Start</button>
+        <button class="tool-button" type="button">Peak</button>
+        <button class="tool-button" type="button">Rec</button>
+        <button class="tool-button" type="button">RFID</button>
+        <button class="tool-button" type="button">Video</button>
       </section>
 
-      <section id="waterfalls" class="waterfall-grid" aria-label="Waterfall graphs"></section>
-
-      <section class="event-strip">
-        <h2>Peak Readout</h2>
-        <div id="peakLog" class="event-log"></div>
-      </section>
-
-      <section class="event-strip">
-        <h2>Process Log</h2>
-        <div id="processLog" class="process-log"></div>
+      <section class="receiver-layout">
+        <section id="waterfalls" class="waterfall-grid" aria-label="Waterfall graphs"></section>
+        <aside class="side-panel">
+          <h2>Receiver Options</h2>
+          <div class="readout" id="offsetText">0.000 kHz</div>
+          <label>Hardware freq <span id="hardwareFreqText">2400.000000 MHz</span></label>
+          <label>Frequency <span id="inputFreqText">2400000.000 kHz</span></label>
+          <label>Filter width <span>IQ span</span></label>
+          <label>Filter shape <span>Normal</span></label>
+          <label>Mode <span>Raw I/Q</span></label>
+          <label>AGC <span>Off</span></label>
+          <label>Squelch <span>-150.0 dB</span></label>
+          <div class="tabs">
+            <button>Input</button>
+            <button>Receiver</button>
+            <button>FFT</button>
+          </div>
+          <h2>Peak Readout</h2>
+          <div id="peakLog" class="event-log compact"></div>
+          <h2>Process Log</h2>
+          <div id="processLog" class="process-log"></div>
+        </aside>
       </section>
     </main>
 
     <template id="waterfallTemplate">
       <article class="waterfall-card">
-        <div class="card-head">
-          <div>
-            <h2 data-field="label"></h2>
-            <p data-field="antenna"></p>
-          </div>
-          <span class="pill" data-field="status"></span>
-        </div>
         <canvas class="spectrum-canvas" width="640" height="160"></canvas>
         <canvas class="waterfall-canvas" width="640" height="360"></canvas>
         <div class="scale-row">

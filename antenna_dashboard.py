@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Deque
 
 from flask import Flask, jsonify, render_template
+import numpy as np
 
 
 @dataclass
@@ -39,6 +40,7 @@ class MonitorBand:
     peak_power_db: float = -100.0
     last_scan_ts: float = 0.0
     status: str = "waiting"
+    row_seq: int = 0
 
 
 class ProcessLog:
@@ -119,6 +121,7 @@ class OfflineWaterfallBackend:
             with self.lock:
                 band = self.bands[index]
                 band.rows.append(self._quiet_row())
+                band.row_seq += 1
                 band.status = "offline"
                 band.peaks = []
                 band.last_scan_ts = time.time()
@@ -302,6 +305,173 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
             self.rows_published += 1
 
 
+class HackRFIQBackend(OfflineWaterfallBackend):
+    """Gqrx-like live FFT from HackRF IQ samples using hackrf_transfer."""
+
+    def __init__(
+        self,
+        bands: list[MonitorBand],
+        center_hz: int = 2_400_000_000,
+        sample_rate_hz: int = 10_000_000,
+        fft_size: int = 1024,
+        lna_gain: int = 16,
+        vga_gain: int = 20,
+        amp: int = 0,
+        avg_alpha: float = 0.45,
+        db_min: float = -95.0,
+        db_max: float = -35.0,
+        update_interval: float = 1 / 60,
+    ):
+        super().__init__(bands, bins=fft_size)
+        self.center_hz = center_hz
+        self.sample_rate_hz = sample_rate_hz
+        self.fft_size = fft_size
+        self.lna_gain = lna_gain
+        self.vga_gain = vga_gain
+        self.amp = amp
+        self.avg_alpha = avg_alpha
+        self.db_min = db_min
+        self.db_max = db_max
+        self.update_interval = update_interval
+        self.process: subprocess.Popen[bytes] | None = None
+        self.error_message = ""
+        self.fft_frames = 0
+        self.rows_published = 0
+        self.last_log_ts = 0.0
+        self._smooth_row: list[float] | None = None
+
+        span_mhz = sample_rate_hz / 1_000_000
+        low_mhz = center_hz / 1_000_000 - span_mhz / 2
+        high_mhz = center_hz / 1_000_000 + span_mhz / 2
+        band = self.bands[0]
+        band.low_mhz = low_mhz
+        band.high_mhz = high_mhz
+        band.markers_mhz = [low_mhz, center_hz / 1_000_000, high_mhz]
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            return {
+                "mode": "live",
+                "source": (
+                    self.error_message
+                    or f"HackRF IQ center {self.center_hz / 1e6:.6f} MHz, "
+                    f"span {self.sample_rate_hz / 1e6:g} MHz, LNA {self.lna_gain} dB, "
+                    f"VGA {self.vga_gain} dB, amp {self.amp}, color {self.db_min:g}..{self.db_max:g} dB"
+                ),
+                "active_band": self.active_key,
+                "bands": [band_payload(band) for band in self.bands],
+                "logs": self.log.snapshot(),
+                "stats": {
+                    "fft_frames": self.fft_frames,
+                    "rows_published": self.rows_published,
+                },
+            }
+
+    def stop(self) -> None:
+        self.running = False
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        if self.thread:
+            self.thread.join(timeout=2)
+
+    def _loop(self) -> None:
+        cmd = [
+            "hackrf_transfer",
+            "-r",
+            "-",
+            "-f",
+            str(self.center_hz),
+            "-s",
+            str(self.sample_rate_hz),
+            "-l",
+            str(self.lna_gain),
+            "-g",
+            str(self.vga_gain),
+            "-a",
+            str(self.amp),
+            "-b",
+            str(min(10_000_000, self.sample_rate_hz)),
+        ]
+        self.log.add("info", "starting hackrf_transfer IQ stream", command=" ".join(cmd))
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+
+        window = np.hanning(self.fft_size).astype(np.float32)
+        last_publish = time.monotonic()
+        assert self.process.stdout is not None
+        while self.running:
+            chunk = self.process.stdout.read(self.fft_size * 2)
+            if not chunk:
+                if self.process.poll() is not None:
+                    break
+                time.sleep(0.002)
+                continue
+            if len(chunk) < self.fft_size * 2:
+                continue
+
+            samples_i8 = np.frombuffer(chunk, dtype=np.int8).astype(np.float32)
+            iq = samples_i8[0::2] + 1j * samples_i8[1::2]
+            iq = iq[: self.fft_size]
+            iq = iq - np.mean(iq)
+            spectrum = np.fft.fftshift(np.fft.fft(iq * window))
+            power_db = 20 * np.log10(np.abs(spectrum) + 1e-6) - 45.0
+            row = normalize_db_array(power_db, self.db_min, self.db_max)
+
+            if self._smooth_row is not None:
+                row = [
+                    self._smooth_row[index] * (1 - self.avg_alpha) + value * self.avg_alpha
+                    for index, value in enumerate(row)
+                ]
+            self._smooth_row = row
+            self.fft_frames += 1
+
+            now = time.monotonic()
+            if now - last_publish >= self.update_interval:
+                self._publish_row(row, power_db)
+                last_publish = now
+
+        stderr = ""
+        if self.process and self.process.stderr:
+            stderr = self.process.stderr.read().decode("utf-8", errors="replace").strip()
+        with self.lock:
+            self.error_message = stderr.splitlines()[0] if stderr else "HackRF IQ stream stopped"
+            self.bands[0].status = "hackrf error"
+        self.log.add("error", self.error_message)
+
+    def _publish_row(self, row: list[float], power_db: np.ndarray) -> None:
+        band = self.bands[0]
+        valid_db = [float(value) for value in power_db]
+        with self.lock:
+            band.rows.append(row)
+            band.row_seq += 1
+            band.peaks = find_peaks(row, band)
+            band.noise_floor_db = percentile(sorted(valid_db), 20)
+            band.peak_power_db = max(valid_db)
+            band.status = "live iq"
+            band.last_scan_ts = time.time()
+            self.active_key = band.key
+            self.rows_published += 1
+            if time.monotonic() - self.last_log_ts >= 0.25:
+                self.log.add(
+                    "debug",
+                    "IQ FFT row",
+                    center_mhz=round(self.center_hz / 1e6, 6),
+                    span_mhz=round(self.sample_rate_hz / 1e6, 3),
+                    noise_db=round(band.noise_floor_db, 1),
+                    peak_db=round(band.peak_power_db, 1),
+                    peaks=[peak["freq_mhz"] for peak in band.peaks[:4]],
+                )
+                self.last_log_ts = time.monotonic()
+
+
 def parse_sweep_line(line: str) -> tuple[int, float, list[float]] | None:
     try:
         fields = next(csv.reader([line.strip()]))
@@ -321,6 +491,12 @@ def normalize_db_fixed(raw_db_row: list[float | None], db_min: float, db_max: fl
         0.0 if value is None else max(0.0, min(1.0, (value - db_min) / span))
         for value in raw_db_row
     ]
+
+
+def normalize_db_array(values: np.ndarray, db_min: float, db_max: float) -> list[float]:
+    span = max(1.0, db_max - db_min)
+    clipped = np.clip((values - db_min) / span, 0.0, 1.0)
+    return clipped.astype(float).tolist()
 
 
 def make_bands() -> list[MonitorBand]:
@@ -345,13 +521,15 @@ def band_payload(band: MonitorBand) -> dict:
         "low_mhz": band.low_mhz,
         "high_mhz": band.high_mhz,
         "markers_mhz": band.markers_mhz,
-        "rows": list(band.rows),
+        "rows": [],
+        "waterfall_row": list(band.rows[-1]) if band.rows else [],
         "waveform": list(band.rows[-1]) if band.rows else [],
         "peaks": band.peaks,
         "noise_floor_db": round(band.noise_floor_db, 1),
         "peak_power_db": round(band.peak_power_db, 1),
         "last_scan_ts": band.last_scan_ts,
         "status": band.status,
+        "row_seq": band.row_seq,
     }
 
 
@@ -393,19 +571,34 @@ def create_app(live: bool = False, args: argparse.Namespace | None = None) -> Fl
     bands = make_bands()
     if live:
         assert args is not None
-        backend = HackRFSweepBackend(
-            bands,
-            sweep_start_mhz=args.sweep_start,
-            sweep_stop_mhz=args.sweep_stop,
-            bin_width_hz=args.bin_width,
-            lna_gain=args.lna,
-            vga_gain=args.vga,
-            amp=args.amp,
-            avg_alpha=args.avg_alpha,
-            db_min=args.db_min,
-            db_max=args.db_max,
-            update_interval=args.update_interval,
-        )
+        if args.backend == "sweep":
+            backend = HackRFSweepBackend(
+                bands,
+                sweep_start_mhz=args.sweep_start,
+                sweep_stop_mhz=args.sweep_stop,
+                bin_width_hz=args.bin_width,
+                lna_gain=args.lna,
+                vga_gain=args.vga,
+                amp=args.amp,
+                avg_alpha=args.avg_alpha,
+                db_min=args.db_min,
+                db_max=args.db_max,
+                update_interval=args.update_interval,
+            )
+        else:
+            backend = HackRFIQBackend(
+                bands,
+                center_hz=args.center_hz,
+                sample_rate_hz=args.sample_rate,
+                fft_size=args.fft_size,
+                lna_gain=args.lna,
+                vga_gain=args.vga,
+                amp=args.amp,
+                avg_alpha=args.avg_alpha,
+                db_min=args.db_min,
+                db_max=args.db_max,
+                update_interval=args.update_interval,
+            )
     else:
         backend = OfflineWaterfallBackend(bands)
     backend.start()
@@ -433,6 +626,10 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--live", action="store_true", help="Read real spectrum data from HackRF")
     parser.add_argument("--hackrf-vivaldi", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--backend", choices=["iq", "sweep"], default="iq", help="HackRF backend")
+    parser.add_argument("--center-hz", type=int, default=2_400_000_000, help="IQ center frequency in Hz")
+    parser.add_argument("--sample-rate", type=int, default=10_000_000, help="IQ sample rate/span in Hz")
+    parser.add_argument("--fft-size", type=int, default=1024, help="FFT bins for IQ backend")
     parser.add_argument("--sweep-start", type=int, default=2300, help="Sweep start in MHz")
     parser.add_argument("--sweep-stop", type=int, default=2500, help="Sweep stop in MHz")
     parser.add_argument("--bin-width", type=int, default=1_000_000, help="hackrf_sweep bin width in Hz")

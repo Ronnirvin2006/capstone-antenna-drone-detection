@@ -7,14 +7,19 @@ const statsText = document.querySelector("#statsText");
 const peakLog = document.querySelector("#peakLog");
 const processLog = document.querySelector("#processLog");
 const sourceText = document.querySelector("#sourceText");
+const frequencyText = document.querySelector("#frequencyText");
+const hardwareFreqText = document.querySelector("#hardwareFreqText");
+const inputFreqText = document.querySelector("#inputFreqText");
+const offsetText = document.querySelector("#offsetText");
 const displayState = new Map();
+const waterfallState = new Map();
+const lastSeq = new Map();
+const maxWaterfallRows = 300;
 
 function makeCard(band) {
   const fragment = template.content.cloneNode(true);
   const card = fragment.querySelector(".waterfall-card");
   card.dataset.key = band.key;
-  card.querySelector('[data-field="label"]').textContent = band.label;
-  card.querySelector('[data-field="antenna"]').textContent = band.antenna;
   card.querySelector('[data-field="low"]').textContent = `${band.low_mhz} MHz`;
   card.querySelector('[data-field="high"]').textContent = `${band.high_mhz} MHz`;
   card.querySelector('[data-field="range"]').textContent = band.range;
@@ -27,9 +32,9 @@ function makeCard(band) {
 
 function colorForPower(value) {
   const v = Math.max(0, Math.min(1, value));
-  const r = v > 0.72 ? Math.round(255 * v) : Math.round(40 * v);
-  const g = v > 0.45 ? Math.round(230 * v) : Math.round(95 + 120 * v);
-  const b = v > 0.7 ? Math.round(60 * (1 - v)) : Math.round(120 + 110 * (1 - v));
+  const r = v > 0.68 ? Math.round(255 * v) : Math.round(22 + 20 * v);
+  const g = v > 0.52 ? Math.round(215 * v) : Math.round(42 + 70 * v);
+  const b = v > 0.75 ? Math.round(30 * (1 - v)) : Math.round(120 + 125 * (1 - v));
   return `rgb(${r}, ${g}, ${b})`;
 }
 
@@ -58,6 +63,25 @@ function drawWaterfall(canvas, rows) {
     ctx.lineTo(x, height);
     ctx.stroke();
   }
+}
+
+function updateWaterfallRows(band) {
+  let rows = waterfallState.get(band.key);
+  if (!rows) {
+    const width = (band.waterfall_row || band.waveform || []).length || 1024;
+    rows = Array.from({ length: maxWaterfallRows }, () => Array(width).fill(0));
+    waterfallState.set(band.key, rows);
+  }
+
+  if (lastSeq.get(band.key) !== band.row_seq) {
+    const row = band.waterfall_row || band.waveform || [];
+    if (row.length) {
+      rows.push(row);
+      while (rows.length > maxWaterfallRows) rows.shift();
+    }
+    lastSeq.set(band.key, band.row_seq);
+  }
+  return rows;
 }
 
 function smoothRow(key, row) {
@@ -94,8 +118,8 @@ function drawWaveform(canvas, band) {
 
   if (!row.length) return;
 
-  ctx.strokeStyle = "#48cae4";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#e9edf0";
+  ctx.lineWidth = 1;
   ctx.beginPath();
   row.forEach((value, index) => {
     const x = (index / Math.max(1, row.length - 1)) * width;
@@ -116,15 +140,14 @@ function updateCard(band, activeKey) {
   const card = cards.get(band.key) || makeCard(band);
   card.classList.toggle("active", band.key === activeKey);
   card.classList.toggle("suspicious", band.peaks.length > 0);
-  card.querySelector('[data-field="status"]').textContent =
-    band.key === activeKey ? "updating" : band.status;
   card.querySelector('[data-field="noise"]').textContent = `Noise: ${band.noise_floor_db} dB`;
   card.querySelector('[data-field="peak"]').textContent = `Peak: ${band.peak_power_db} dB`;
   const spectrumCanvas = card.querySelector(".spectrum-canvas");
   const waterfallCanvas = card.querySelector(".waterfall-canvas");
+  const rows = updateWaterfallRows(band);
   drawWaveform(spectrumCanvas, band);
   drawMarkers(spectrumCanvas, band);
-  drawWaterfall(waterfallCanvas, band.rows);
+  drawWaterfall(waterfallCanvas, rows);
   drawMarkers(waterfallCanvas, band);
 }
 
@@ -153,7 +176,20 @@ function updateHeader(state) {
   receiverText.textContent = state.mode === "live" ? "HackRF Live" : "Offline";
   gainText.textContent = state.mode === "live" ? "Live spectrum monitor" : "Run with --live";
   const stats = state.stats || {};
-  statsText.textContent = `${stats.sweep_lines || 0} sweep lines / ${stats.rows_published || 0} waterfall rows`;
+  statsText.textContent = `${stats.fft_frames || stats.sweep_lines || 0} frames / ${stats.rows_published || 0} rows`;
+  const band = state.bands[0];
+  if (band) {
+    const center = (band.low_mhz + band.high_mhz) / 2;
+    frequencyText.textContent = formatLargeFrequency(center);
+    hardwareFreqText.textContent = `${center.toFixed(6)} MHz`;
+    inputFreqText.textContent = `${(center * 1000).toFixed(3)} kHz`;
+    offsetText.textContent = "0.000 kHz";
+  }
+}
+
+function formatLargeFrequency(freqMhz) {
+  const hz = Math.round(freqMhz * 1_000_000).toString().padStart(10, "0");
+  return `${hz.slice(0, 1)}.${hz.slice(1, 4)}.${hz.slice(4, 7)}.${hz.slice(7)}`;
 }
 
 function updatePeakLog(state) {
