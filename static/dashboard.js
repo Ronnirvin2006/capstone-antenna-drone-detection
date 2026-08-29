@@ -1,10 +1,9 @@
 const cards = new Map();
 const waterfalls = document.querySelector("#waterfalls");
 const template = document.querySelector("#waterfallTemplate");
-const alertPanel = document.querySelector("#alertPanel");
-const alertText = document.querySelector("#alertText");
-const countText = document.querySelector("#countText");
-const eventLog = document.querySelector("#eventLog");
+const receiverText = document.querySelector("#receiverText");
+const gainText = document.querySelector("#gainText");
+const peakLog = document.querySelector("#peakLog");
 const sourceText = document.querySelector("#sourceText");
 
 function makeCard(band) {
@@ -16,6 +15,8 @@ function makeCard(band) {
   card.querySelector('[data-field="low"]').textContent = `${band.low_mhz} MHz`;
   card.querySelector('[data-field="high"]').textContent = `${band.high_mhz} MHz`;
   card.querySelector('[data-field="range"]').textContent = band.range;
+  card.querySelector('[data-field="markers"]').textContent =
+    `Markers: ${band.markers_mhz.map((f) => `${f} MHz`).join(" / ")}`;
   waterfalls.appendChild(card);
   cards.set(band.key, card);
   return card;
@@ -59,41 +60,58 @@ function drawWaterfall(canvas, rows) {
 function updateCard(band, activeKey) {
   const card = cards.get(band.key) || makeCard(band);
   card.classList.toggle("active", band.key === activeKey);
-  card.classList.toggle("suspicious", band.suspicious);
+  card.classList.toggle("suspicious", band.peaks.length > 0);
   card.querySelector('[data-field="status"]').textContent =
-    band.key === activeKey ? "live scan" : band.status;
-  card.querySelector('[data-field="mux"]').textContent = `MUX ${band.mux_port}`;
-  card.querySelector('[data-field="peaks"]').textContent =
-    band.peaks.length ? `${band.peaks.length} peaks` : "no peaks";
-  const ml = band.ml_result || {};
-  const label = ml.label || "waiting";
-  const confidence = Math.round((ml.confidence || 0) * 100);
-  card.querySelector('[data-field="ml"]').textContent =
-    `ML: ${label.replace("_", " ")} / ${confidence}%`;
+    band.key === activeKey ? "updating" : band.status;
+  card.querySelector('[data-field="noise"]').textContent = `Noise: ${band.noise_floor_db} dB`;
+  card.querySelector('[data-field="peak"]').textContent = `Peak: ${band.peak_power_db} dB`;
   drawWaterfall(card.querySelector("canvas"), band.rows);
+  drawMarkers(card.querySelector("canvas"), band);
 }
 
-function updateAlert(state) {
-  sourceText.textContent =
-    `Mode: ${state.mode.toUpperCase()} / ${state.source} / ML detector enabled`;
-  alertPanel.classList.toggle("danger", state.alert);
-  alertPanel.classList.toggle("quiet", !state.alert);
-  alertText.textContent = state.alert ? "Drone-like RF activity" : state.mode === "offline" ? "No SDR connected" : "Scanning";
-  countText.textContent = `${state.detected_count} suspected drone${state.detected_count === 1 ? "" : "s"}`;
+function drawMarkers(canvas, band) {
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 209, 102, 0.72)";
+  ctx.fillStyle = "rgba(255, 209, 102, 0.9)";
+  ctx.font = "18px sans-serif";
+  band.markers_mhz.forEach((freq) => {
+    if (freq < band.low_mhz || freq > band.high_mhz) return;
+    const x = ((freq - band.low_mhz) / (band.high_mhz - band.low_mhz)) * width;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+    ctx.fillText(`${freq}`, x + 4, 22);
+  });
+  ctx.restore();
+}
 
-  if (!state.detections.length) {
-    const mode = state.mode === "offline" ? "connect HackRF for real detection" : "demo";
-    eventLog.innerHTML = `<div class="event-item"><span>No suspicious RF pattern currently detected.</span><span>${mode}</span></div>`;
+function updateHeader(state) {
+  sourceText.textContent = state.source;
+  receiverText.textContent = state.mode === "live" ? "HackRF Live" : "Offline";
+  gainText.textContent = state.mode === "live" ? "Live spectrum monitor" : "Run with --live";
+}
+
+function updatePeakLog(state) {
+  const peaks = [];
+  state.bands.forEach((band) => {
+    band.peaks.forEach((peak) => peaks.push({ band: band.label, ...peak }));
+  });
+
+  if (!peaks.length) {
+    peakLog.innerHTML = '<div class="event-item"><span>No strong peaks in current view.</span><span>monitoring</span></div>';
     return;
   }
 
-  eventLog.innerHTML = "";
-  state.detections.forEach((detection) => {
+  peakLog.innerHTML = "";
+  peaks.slice(0, 10).forEach((peak) => {
     const item = document.createElement("div");
     item.className = "event-item";
-    const peaks = detection.peaks.map((peak) => `${peak.freq_mhz} MHz`).join(", ");
-    item.innerHTML = `<span>${detection.antenna}: ${peaks}</span><span>${detection.estimated_drones} estimated</span>`;
-    eventLog.appendChild(item);
+    item.innerHTML = `<span>${peak.band}: ${peak.freq_mhz} MHz</span><span>${Math.round(peak.strength * 100)}%</span>`;
+    peakLog.appendChild(item);
   });
 }
 
@@ -101,11 +119,12 @@ async function pollState() {
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
     const state = await response.json();
-    state.bands.forEach((band) => updateCard(band, state.active_antenna));
-    updateAlert(state);
+    state.bands.forEach((band) => updateCard(band, state.active_band));
+    updateHeader(state);
+    updatePeakLog(state);
   } catch (error) {
-    alertText.textContent = "Dashboard disconnected";
-    countText.textContent = "waiting for backend";
+    receiverText.textContent = "Disconnected";
+    gainText.textContent = "waiting for backend";
   }
 }
 

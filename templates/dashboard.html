@@ -3,35 +3,36 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Antenna Drone Detection</title>
+    <title>RF Waterfall Monitor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <h1>Antenna Drone Detection</h1>
-          <p id="sourceText">Yagi-Uda, LPDA, and Vivaldi waterfall scanner</p>
+          <h1>RF Waterfall Monitor</h1>
+          <p id="sourceText">433 MHz, 915 MHz, GPS/GNSS, 2.4 GHz, and 5.8 GHz</p>
         </div>
-        <section id="alertPanel" class="alert-panel quiet">
-          <span class="alert-label">Status</span>
-          <strong id="alertText">Scanning</strong>
-          <span id="countText">0 suspected drones</span>
+        <section class="alert-panel quiet">
+          <span class="alert-label">Receiver</span>
+          <strong id="receiverText">Offline</strong>
+          <span id="gainText">Start live mode to scan HackRF</span>
         </section>
       </header>
 
       <section class="actions" aria-label="Detection controls">
-        <button class="action-button active" type="button">Antenna Scan</button>
+        <button class="action-button active" type="button">Waterfall</button>
+        <button class="action-button" type="button">Peak Hold</button>
+        <button class="action-button" type="button">Filters</button>
         <button class="action-button" type="button">RFID Detection</button>
         <button class="action-button" type="button">Video Detection</button>
-        <button class="action-button" type="button">Optimization</button>
       </section>
 
       <section id="waterfalls" class="waterfall-grid" aria-label="Waterfall graphs"></section>
 
       <section class="event-strip">
-        <h2>Suspicious Signal Log</h2>
-        <div id="eventLog" class="event-log"></div>
+        <h2>Peak Readout</h2>
+        <div id="peakLog" class="event-log"></div>
       </section>
     </main>
 
@@ -51,10 +52,10 @@
           <span data-field="high"></span>
         </div>
         <div class="meta-row">
-          <span data-field="mux"></span>
-          <span data-field="peaks"></span>
+          <span data-field="noise"></span>
+          <span data-field="peak"></span>
         </div>
-        <div class="ml-row" data-field="ml"></div>
+        <div class="marker-row" data-field="markers"></div>
       </article>
     </template>
 

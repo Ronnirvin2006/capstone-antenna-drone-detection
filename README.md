@@ -1,11 +1,11 @@
 # Antenna Drone Detection System
 
-Interactive SDR dashboard for detecting suspicious drone-like RF activity using
-three fabricated antennas connected through an RF MUX to a HackRF One.
+Interactive SDR dashboard for viewing RF waterfall activity using fabricated
+antennas connected through an RF MUX to a HackRF One.
 
 This repository was copied from the earlier capstone anti-drone system and is
-now being continued as a receive-only detection project. The old modules are
-kept as reference code, but the new application entry point is
+now being continued as a receive-only RF monitoring project. The old modules
+are kept as reference code, but the new application entry point is
 `antenna_dashboard.py`.
 
 ## Current Hardware Plan
@@ -23,9 +23,11 @@ three waterfall slots and updates them in a scan sequence.
 
 | Slot | Antenna | Main Use |
 |---|---|---|
-| Yagi-Uda 433 | 433 MHz directional antenna | 433 MHz telemetry / ISM activity |
-| LPDA 915-1600 | 915 MHz to 1.6 GHz LPDA | 915 MHz, GNSS bands, other low-band links |
-| Vivaldi 2-6 GHz | 2 GHz to 6 GHz Vivaldi | 2.4 GHz and 5.8 GHz drone/control/video activity |
+| 433 MHz | Yagi-Uda 433 MHz | 433 MHz telemetry / ISM activity |
+| 915 MHz | LPDA 915 MHz to 1.6 GHz | 902-928 MHz links |
+| GPS / GNSS | LPDA 915 MHz to 1.6 GHz | GPS L5, GPS L2, GPS L1 |
+| 2.4 GHz | Vivaldi 2 GHz to 6 GHz | 2.4 GHz control / WiFi-like links |
+| 5.8 GHz | Vivaldi 2 GHz to 6 GHz | 5.8 GHz video/control links |
 
 ## Run The Dashboard
 
@@ -57,33 +59,42 @@ http://127.0.0.1:8080
 
 ## What Works Now
 
-- Three live waterfall graph slots.
-- Round-robin MUX-style scanning model.
-- Clear offline/demo mode indicator.
-- ML-style waterfall classifier for noise, steady carrier, and drone-like hopping patterns.
-- Suspicious hopping/new-signal alert panel in demo mode.
-- Estimated suspected drone count placeholder for later real SDR integration.
-- Buttons for Antenna Scan, RFID Detection, Video Detection, and Optimization.
+- Five Gqrx-style waterfall graph slots.
+- Fixed panes for 433 MHz, 915 MHz, GPS/GNSS, 2.4 GHz, and 5.8 GHz.
+- Live HackRF sweep mode using `hackrf_sweep`.
+- Peak readout for strong visible carriers.
+- Backend gain/filter options for LNA, VGA, RF amp, bin width, and smoothing.
+- Buttons for Waterfall, Peak Hold, Filters, RFID Detection, and Video Detection.
 
-By default the app starts in offline mode. It does not claim real detections
-until HackRF/MUX input is connected in the next step.
+By default the app starts in offline mode. It does not claim drone detection or
+classification.
 
-For UI testing with fake drone-like signals:
-
-```bash
-python antenna_dashboard.py --demo-signals
-```
-
-For real Vivaldi + HackRF scanning:
+For real HackRF waterfall scanning:
 
 ```bash
-python antenna_dashboard.py --hackrf-vivaldi
+python antenna_dashboard.py --live
 ```
 
-Close Gqrx before running live mode because only one program can use the HackRF
-at a time. Live mode currently feeds real `hackrf_sweep` spectrum data into the
-Vivaldi waterfall slot from 2.4 GHz to 6 GHz. The Yagi and LPDA slots remain
-marked as not connected until MUX control is added.
+Close Gqrx before running live mode because only one program can use HackRF at
+a time.
+
+Lower noise / less gain:
+
+```bash
+python antenna_dashboard.py --live --lna 8 --vga 12
+```
+
+More sensitivity:
+
+```bash
+python antenna_dashboard.py --live --lna 24 --vga 28
+```
+
+Sharper waterfall bins:
+
+```bash
+python antenna_dashboard.py --live --bin-width 1000000
+```
 
 ## Next Build Steps
 

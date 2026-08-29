@@ -8,7 +8,7 @@
   --muted: #9aa8b2;
   --green: #3ddc97;
   --yellow: #ffd166;
-  --red: #ff4d5a;
+  --red: #f77f00;
   --cyan: #48cae4;
 }
 
@@ -53,7 +53,8 @@ h1 {
 .topbar p,
 .card-head p,
 .scale-row,
-.meta-row {
+.meta-row,
+.marker-row {
   color: var(--muted);
 }
 
@@ -66,11 +67,6 @@ h1 {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-}
-
-.alert-panel.danger {
-  border-color: rgba(255, 77, 90, 0.9);
-  background: #2a1518;
 }
 
 .alert-label {
@@ -109,7 +105,7 @@ h1 {
 
 .waterfall-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -185,7 +181,7 @@ canvas {
   font-size: 12px;
 }
 
-.ml-row {
+.marker-row {
   color: var(--yellow);
 }
 
