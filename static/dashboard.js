@@ -59,6 +59,45 @@ function drawWaterfall(canvas, rows) {
   }
 }
 
+function drawWaveform(canvas, band) {
+  const row = band.waveform || [];
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#05090c";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i += 1) {
+    const y = (height / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+
+  if (!row.length) return;
+
+  ctx.strokeStyle = "#48cae4";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  row.forEach((value, index) => {
+    const x = (index / Math.max(1, row.length - 1)) * width;
+    const y = height - Math.max(0, Math.min(1, value)) * height;
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255, 209, 102, 0.85)";
+  band.peaks.slice(0, 4).forEach((peak) => {
+    const x = ((peak.freq_mhz - band.low_mhz) / (band.high_mhz - band.low_mhz)) * width;
+    ctx.fillRect(x - 2, 0, 4, height);
+  });
+}
+
 function updateCard(band, activeKey) {
   const card = cards.get(band.key) || makeCard(band);
   card.classList.toggle("active", band.key === activeKey);
@@ -67,8 +106,12 @@ function updateCard(band, activeKey) {
     band.key === activeKey ? "updating" : band.status;
   card.querySelector('[data-field="noise"]').textContent = `Noise: ${band.noise_floor_db} dB`;
   card.querySelector('[data-field="peak"]').textContent = `Peak: ${band.peak_power_db} dB`;
-  drawWaterfall(card.querySelector("canvas"), band.rows);
-  drawMarkers(card.querySelector("canvas"), band);
+  const spectrumCanvas = card.querySelector(".spectrum-canvas");
+  const waterfallCanvas = card.querySelector(".waterfall-canvas");
+  drawWaveform(spectrumCanvas, band);
+  drawMarkers(spectrumCanvas, band);
+  drawWaterfall(waterfallCanvas, band.rows);
+  drawMarkers(waterfallCanvas, band);
 }
 
 function drawMarkers(canvas, band) {
@@ -138,7 +181,11 @@ function updateProcessLog(state) {
   });
 }
 
+let isPolling = false;
+
 async function pollState() {
+  if (isPolling) return;
+  isPolling = true;
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
     const state = await response.json();
@@ -149,8 +196,14 @@ async function pollState() {
   } catch (error) {
     receiverText.textContent = "Disconnected";
     gainText.textContent = "waiting for backend";
+  } finally {
+    isPolling = false;
   }
 }
 
-pollState();
-setInterval(pollState, 650);
+function frameLoop() {
+  pollState();
+  requestAnimationFrame(frameLoop);
+}
+
+frameLoop();

@@ -165,10 +165,18 @@ h1 {
 canvas {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9;
   background: #02070b;
   border: 1px solid #26313a;
   border-radius: 4px;
+}
+
+.spectrum-canvas {
+  aspect-ratio: 4 / 1;
+  margin-bottom: 8px;
+}
+
+.waterfall-canvas {
+  aspect-ratio: 16 / 9;
 }
 
 .scale-row,

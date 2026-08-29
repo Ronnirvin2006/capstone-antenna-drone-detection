@@ -78,16 +78,22 @@ python antenna_dashboard.py --live
 Close Gqrx before running live mode because only one program can use HackRF at
 a time.
 
+The default live view is focused on 2.4 GHz with 2400 MHz in the centre:
+
+```text
+2358-2442 MHz
+```
+
 Lower noise / less gain:
 
 ```bash
-python antenna_dashboard.py --live --lna 8 --vga 12
+python antenna_dashboard.py --live --lna 8 --vga 12 --db-min -90 --db-max -35
 ```
 
 More sensitivity:
 
 ```bash
-python antenna_dashboard.py --live --lna 24 --vga 28
+python antenna_dashboard.py --live --lna 24 --vga 28 --db-min -90 --db-max -35
 ```
 
 Sharper waterfall bins:
@@ -95,6 +101,9 @@ Sharper waterfall bins:
 ```bash
 python antenna_dashboard.py --live --bin-width 1000000
 ```
+
+The browser render loop targets 60 Hz. Actual new RF rows depend on how fast
+`hackrf_sweep` returns data for the selected span.
 
 ## Next Build Steps
 

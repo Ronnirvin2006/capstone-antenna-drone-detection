@@ -147,6 +147,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
         avg_alpha: float = 0.35,
         db_min: float = -95.0,
         db_max: float = -35.0,
+        update_interval: float = 1 / 60,
     ):
         super().__init__(bands, bins=bins)
         self.sweep_start_mhz = sweep_start_mhz
@@ -158,10 +159,12 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
         self.avg_alpha = avg_alpha
         self.db_min = db_min
         self.db_max = db_max
+        self.update_interval = update_interval
         self.process: subprocess.Popen[str] | None = None
         self.error_message = ""
         self.sweep_lines = 0
         self.rows_published = 0
+        self.last_log_ts = 0.0
         self._raw_rows: dict[str, list[float | None]] = {
             band.key: [None] * self.bins for band in self.bands
         }
@@ -240,7 +243,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
             self._merge_segment(hz_low, bin_width_hz, powers)
 
             now = time.monotonic()
-            if now - last_flush >= 0.35:
+            if now - last_flush >= self.update_interval:
                 self._publish_rows()
                 last_flush = now
 
@@ -285,7 +288,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
                     band.status = "live"
                     band.last_scan_ts = time.time()
                     self.active_key = band.key
-                    if band.key == "ghz24":
+                    if band.key == "ghz24" and time.monotonic() - self.last_log_ts >= 0.25:
                         self.log.add(
                             "debug",
                             "2.4 GHz row",
@@ -293,6 +296,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
                             peak_db=round(band.peak_power_db, 1),
                             peaks=[peak["freq_mhz"] for peak in band.peaks[:4]],
                         )
+                        self.last_log_ts = time.monotonic()
                 else:
                     band.status = "waiting"
                 self._raw_rows[band.key] = [None] * self.bins
@@ -350,9 +354,9 @@ def make_bands() -> list[MonitorBand]:
             key="ghz24",
             label="2.4 GHz",
             antenna="Vivaldi 2-6 GHz",
-            low_mhz=2400,
-            high_mhz=2485,
-            markers_mhz=[2412, 2437, 2462, 2480],
+            low_mhz=2358,
+            high_mhz=2442,
+            markers_mhz=[2400, 2412, 2437],
         ),
         MonitorBand(
             key="ghz58",
@@ -375,6 +379,7 @@ def band_payload(band: MonitorBand) -> dict:
         "high_mhz": band.high_mhz,
         "markers_mhz": band.markers_mhz,
         "rows": list(band.rows),
+        "waveform": list(band.rows[-1]) if band.rows else [],
         "peaks": band.peaks,
         "noise_floor_db": round(band.noise_floor_db, 1),
         "peak_power_db": round(band.peak_power_db, 1),
@@ -432,6 +437,7 @@ def create_app(live: bool = False, args: argparse.Namespace | None = None) -> Fl
             avg_alpha=args.avg_alpha,
             db_min=args.db_min,
             db_max=args.db_max,
+            update_interval=args.update_interval,
         )
     else:
         backend = OfflineWaterfallBackend(bands)
@@ -460,8 +466,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--live", action="store_true", help="Read real spectrum data from HackRF")
     parser.add_argument("--hackrf-vivaldi", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--sweep-start", type=int, default=2400, help="Sweep start in MHz")
-    parser.add_argument("--sweep-stop", type=int, default=2485, help="Sweep stop in MHz")
+    parser.add_argument("--sweep-start", type=int, default=2358, help="Sweep start in MHz")
+    parser.add_argument("--sweep-stop", type=int, default=2442, help="Sweep stop in MHz")
     parser.add_argument("--bin-width", type=int, default=1_000_000, help="hackrf_sweep bin width in Hz")
     parser.add_argument("--lna", type=int, default=16, help="HackRF LNA/IF gain in dB")
     parser.add_argument("--vga", type=int, default=20, help="HackRF VGA/baseband gain in dB")
@@ -469,6 +475,7 @@ def main() -> None:
     parser.add_argument("--avg-alpha", type=float, default=0.75, help="Waterfall smoothing, 0.1 slow to 1.0 raw")
     parser.add_argument("--db-min", type=float, default=-95.0, help="Waterfall color floor in dB")
     parser.add_argument("--db-max", type=float, default=-35.0, help="Waterfall color ceiling in dB")
+    parser.add_argument("--update-interval", type=float, default=1 / 60, help="Backend waterfall row interval in seconds")
     args = parser.parse_args()
 
     app = create_app(live=args.live or args.hackrf_vivaldi, args=args)
