@@ -3,7 +3,7 @@ import signal
 import sys
 
 from gnuradio import eng_notation, gr, qtgui
-from gnuradio.filter import firdes
+from gnuradio.fft import window
 from PyQt5 import Qt
 import osmosdr
 import sip
@@ -41,7 +41,7 @@ class HackRF24GHzMonitor(gr.top_block, Qt.QWidget):
 
         self.freq_sink = qtgui.freq_sink_c(
             self.fft_size,
-            firdes.WIN_BLACKMAN_hARRIS,
+            window.WIN_BLACKMAN_HARRIS,
             self.center_freq,
             self.samp_rate,
             "RF Spectrum / Waveform",
@@ -59,7 +59,7 @@ class HackRF24GHzMonitor(gr.top_block, Qt.QWidget):
 
         self.waterfall_sink = qtgui.waterfall_sink_c(
             self.fft_size,
-            firdes.WIN_BLACKMAN_hARRIS,
+            window.WIN_BLACKMAN_HARRIS,
             self.center_freq,
             self.samp_rate,
             "Waterfall",
