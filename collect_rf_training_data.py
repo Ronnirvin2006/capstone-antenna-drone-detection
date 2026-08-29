@@ -86,6 +86,7 @@ def main() -> None:
     end_time = time.monotonic() + args.seconds
     saved = 0
 
+    interrupted = False
     try:
         assert process.stdout is not None
         with out_path.open("w", encoding="utf-8") as fh:
@@ -129,6 +130,9 @@ def main() -> None:
                         fh.write(json.dumps(record) + "\n")
                         saved += 1
                         print(f"saved windows: {saved}", end="\r", flush=True)
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\nRecording stopped by user.")
     finally:
         if process.poll() is None:
             process.terminate()
@@ -137,7 +141,10 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 process.kill()
 
-    print(f"\nDone. Saved {saved} training windows.")
+    if interrupted and saved == 0:
+        print("No full training window was saved. Try 30 seconds again.")
+    else:
+        print(f"\nDone. Saved {saved} training windows.")
 
 
 if __name__ == "__main__":
