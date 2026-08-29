@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import random
 import subprocess
 import threading
@@ -23,8 +24,6 @@ from dataclasses import dataclass, field
 from typing import Deque
 
 from flask import Flask, jsonify, render_template
-
-from modules.signal_detection.ml_detector import normalize_db_row
 
 
 @dataclass
@@ -43,12 +42,50 @@ class MonitorBand:
     status: str = "waiting"
 
 
+class ProcessLog:
+    def __init__(self, path: str = "logs/rf_monitor.jsonl", max_items: int = 120):
+        self.path = path
+        self.items: Deque[dict] = deque(maxlen=max_items)
+        self.lock = threading.Lock()
+
+    def add(self, level: str, message: str, **fields) -> None:
+        item = {
+            "ts": time.strftime("%H:%M:%S"),
+            "level": level,
+            "message": message,
+            **fields,
+        }
+        with self.lock:
+            self.items.appendleft(item)
+            try:
+                PathSafe.ensure_parent(self.path)
+                with open(self.path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(item) + "\n")
+            except OSError:
+                pass
+
+    def snapshot(self) -> list[dict]:
+        with self.lock:
+            return list(self.items)
+
+
+class PathSafe:
+    @staticmethod
+    def ensure_parent(path: str) -> None:
+        import os
+
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+
 class OfflineWaterfallBackend:
     """Shows quiet instrument panes when HackRF live mode is not selected."""
 
-    def __init__(self, bands: list[MonitorBand], bins: int = 220):
+    def __init__(self, bands: list[MonitorBand], bins: int = 220, log: ProcessLog | None = None):
         self.bands = bands
         self.bins = bins
+        self.log = log or ProcessLog()
         self.running = False
         self.thread: threading.Thread | None = None
         self.lock = threading.Lock()
@@ -74,6 +111,7 @@ class OfflineWaterfallBackend:
                 "source": "HackRF live scan not started",
                 "active_band": self.active_key,
                 "bands": [band_payload(band) for band in self.bands],
+                "logs": self.log.snapshot(),
             }
 
     def _loop(self) -> None:
@@ -107,6 +145,8 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
         vga_gain: int = 20,
         amp: int = 0,
         avg_alpha: float = 0.35,
+        db_min: float = -95.0,
+        db_max: float = -35.0,
     ):
         super().__init__(bands, bins=bins)
         self.sweep_start_mhz = sweep_start_mhz
@@ -116,8 +156,12 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
         self.vga_gain = vga_gain
         self.amp = amp
         self.avg_alpha = avg_alpha
+        self.db_min = db_min
+        self.db_max = db_max
         self.process: subprocess.Popen[str] | None = None
         self.error_message = ""
+        self.sweep_lines = 0
+        self.rows_published = 0
         self._raw_rows: dict[str, list[float | None]] = {
             band.key: [None] * self.bins for band in self.bands
         }
@@ -132,10 +176,16 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
                 "source": (
                     self.error_message
                     or f"HackRF sweep {self.sweep_start_mhz}-{self.sweep_stop_mhz} MHz, "
-                    f"LNA {self.lna_gain} dB, VGA {self.vga_gain} dB, amp {self.amp}"
+                    f"LNA {self.lna_gain} dB, VGA {self.vga_gain} dB, amp {self.amp}, "
+                    f"color {self.db_min:g}..{self.db_max:g} dB"
                 ),
                 "active_band": self.active_key,
                 "bands": [band_payload(band) for band in self.bands],
+                "logs": self.log.snapshot(),
+                "stats": {
+                    "sweep_lines": self.sweep_lines,
+                    "rows_published": self.rows_published,
+                },
             }
 
     def stop(self) -> None:
@@ -163,6 +213,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
             "-a",
             str(self.amp),
         ]
+        self.log.add("info", "starting hackrf_sweep", command=" ".join(cmd))
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -184,6 +235,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
             parsed = parse_sweep_line(line)
             if parsed is None:
                 continue
+            self.sweep_lines += 1
             hz_low, bin_width_hz, powers = parsed
             self._merge_segment(hz_low, bin_width_hz, powers)
 
@@ -199,6 +251,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
             self.error_message = stderr.splitlines()[0] if stderr else "HackRF sweep stopped"
             for band in self.bands:
                 band.status = "hackrf error"
+        self.log.add("error", self.error_message)
 
     def _merge_segment(self, hz_low: int, bin_width_hz: float, powers: list[float]) -> None:
         for index, power_db in enumerate(powers):
@@ -215,7 +268,7 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
         with self.lock:
             for band in self.bands:
                 raw = self._raw_rows[band.key]
-                normalized = normalize_db_row(raw)
+                normalized = normalize_db_fixed(raw, self.db_min, self.db_max)
                 previous = self._smooth_rows[band.key]
                 if previous is not None:
                     normalized = [
@@ -232,9 +285,18 @@ class HackRFSweepBackend(OfflineWaterfallBackend):
                     band.status = "live"
                     band.last_scan_ts = time.time()
                     self.active_key = band.key
+                    if band.key == "ghz24":
+                        self.log.add(
+                            "debug",
+                            "2.4 GHz row",
+                            noise_db=round(band.noise_floor_db, 1),
+                            peak_db=round(band.peak_power_db, 1),
+                            peaks=[peak["freq_mhz"] for peak in band.peaks[:4]],
+                        )
                 else:
                     band.status = "waiting"
                 self._raw_rows[band.key] = [None] * self.bins
+            self.rows_published += 1
 
 
 def parse_sweep_line(line: str) -> tuple[int, float, list[float]] | None:
@@ -248,6 +310,14 @@ def parse_sweep_line(line: str) -> tuple[int, float, list[float]] | None:
         return hz_low, bin_width_hz, powers
     except (ValueError, csv.Error):
         return None
+
+
+def normalize_db_fixed(raw_db_row: list[float | None], db_min: float, db_max: float) -> list[float]:
+    span = max(1.0, db_max - db_min)
+    return [
+        0.0 if value is None else max(0.0, min(1.0, (value - db_min) / span))
+        for value in raw_db_row
+    ]
 
 
 def make_bands() -> list[MonitorBand]:
@@ -360,6 +430,8 @@ def create_app(live: bool = False, args: argparse.Namespace | None = None) -> Fl
             vga_gain=args.vga,
             amp=args.amp,
             avg_alpha=args.avg_alpha,
+            db_min=args.db_min,
+            db_max=args.db_max,
         )
     else:
         backend = OfflineWaterfallBackend(bands)
@@ -388,13 +460,15 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--live", action="store_true", help="Read real spectrum data from HackRF")
     parser.add_argument("--hackrf-vivaldi", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--sweep-start", type=int, default=420, help="Sweep start in MHz")
-    parser.add_argument("--sweep-stop", type=int, default=5900, help="Sweep stop in MHz")
-    parser.add_argument("--bin-width", type=int, default=2_000_000, help="hackrf_sweep bin width in Hz")
+    parser.add_argument("--sweep-start", type=int, default=2400, help="Sweep start in MHz")
+    parser.add_argument("--sweep-stop", type=int, default=2485, help="Sweep stop in MHz")
+    parser.add_argument("--bin-width", type=int, default=1_000_000, help="hackrf_sweep bin width in Hz")
     parser.add_argument("--lna", type=int, default=16, help="HackRF LNA/IF gain in dB")
     parser.add_argument("--vga", type=int, default=20, help="HackRF VGA/baseband gain in dB")
     parser.add_argument("--amp", type=int, default=0, choices=[0, 1], help="HackRF RF amp, 0 off or 1 on")
-    parser.add_argument("--avg-alpha", type=float, default=0.35, help="Waterfall smoothing, 0.1 slow to 1.0 raw")
+    parser.add_argument("--avg-alpha", type=float, default=0.75, help="Waterfall smoothing, 0.1 slow to 1.0 raw")
+    parser.add_argument("--db-min", type=float, default=-95.0, help="Waterfall color floor in dB")
+    parser.add_argument("--db-max", type=float, default=-35.0, help="Waterfall color ceiling in dB")
     args = parser.parse_args()
 
     app = create_app(live=args.live or args.hackrf_vivaldi, args=args)

@@ -3,7 +3,9 @@ const waterfalls = document.querySelector("#waterfalls");
 const template = document.querySelector("#waterfallTemplate");
 const receiverText = document.querySelector("#receiverText");
 const gainText = document.querySelector("#gainText");
+const statsText = document.querySelector("#statsText");
 const peakLog = document.querySelector("#peakLog");
+const processLog = document.querySelector("#processLog");
 const sourceText = document.querySelector("#sourceText");
 
 function makeCard(band) {
@@ -93,6 +95,8 @@ function updateHeader(state) {
   sourceText.textContent = state.source;
   receiverText.textContent = state.mode === "live" ? "HackRF Live" : "Offline";
   gainText.textContent = state.mode === "live" ? "Live spectrum monitor" : "Run with --live";
+  const stats = state.stats || {};
+  statsText.textContent = `${stats.sweep_lines || 0} sweep lines / ${stats.rows_published || 0} waterfall rows`;
 }
 
 function updatePeakLog(state) {
@@ -115,6 +119,25 @@ function updatePeakLog(state) {
   });
 }
 
+function updateProcessLog(state) {
+  const logs = state.logs || [];
+  if (!logs.length) {
+    processLog.innerHTML = '<div class="log-item"><span>waiting for receiver events</span></div>';
+    return;
+  }
+  processLog.innerHTML = "";
+  logs.slice(0, 18).forEach((entry) => {
+    const item = document.createElement("div");
+    item.className = `log-item ${entry.level}`;
+    const fields = Object.entries(entry)
+      .filter(([key]) => !["ts", "level", "message"].includes(key))
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+      .join(" / ");
+    item.innerHTML = `<span>${entry.ts} ${entry.level.toUpperCase()} ${entry.message}</span><small>${fields}</small>`;
+    processLog.appendChild(item);
+  });
+}
+
 async function pollState() {
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
@@ -122,6 +145,7 @@ async function pollState() {
     state.bands.forEach((band) => updateCard(band, state.active_band));
     updateHeader(state);
     updatePeakLog(state);
+    updateProcessLog(state);
   } catch (error) {
     receiverText.textContent = "Disconnected";
     gainText.textContent = "waiting for backend";

@@ -204,6 +204,13 @@ canvas {
   gap: 8px;
 }
 
+.process-log {
+  max-height: 230px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+}
+
 .event-item {
   display: flex;
   justify-content: space-between;
@@ -214,6 +221,31 @@ canvas {
   border-radius: 4px;
   color: var(--text);
   font-size: 13px;
+}
+
+.log-item {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  background: #11171b;
+  border-left: 3px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.log-item.debug {
+  border-left-color: var(--cyan);
+}
+
+.log-item.error {
+  border-left-color: var(--red);
+}
+
+.log-item small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1100px) {
