@@ -14,6 +14,8 @@ the UI can be developed and tested before the live HackRF integration is added.
 from __future__ import annotations
 
 import argparse
+import csv
+import subprocess
 import random
 import threading
 import time
@@ -182,7 +184,184 @@ class DetectionBackend:
         return int((clamped - low) / (high - low) * (self.bins - 1))
 
 
-def create_app(demo_signals: bool = False) -> Flask:
+class HackRFVivaldiBackend(DetectionBackend):
+    """Reads real spectrum rows from hackrf_sweep for the Vivaldi antenna."""
+
+    def __init__(
+        self,
+        bands: list[AntennaBand],
+        bins: int = 160,
+        start_mhz: int = 2400,
+        stop_mhz: int = 6000,
+        bin_width_hz: int = 5_000_000,
+        lna_gain: int = 24,
+        vga_gain: int = 32,
+        amp: int = 0,
+    ):
+        super().__init__(bands, bins=bins, demo_signals=False)
+        self.start_mhz = start_mhz
+        self.stop_mhz = stop_mhz
+        self.bin_width_hz = bin_width_hz
+        self.lna_gain = lna_gain
+        self.vga_gain = vga_gain
+        self.amp = amp
+        self.process: subprocess.Popen[str] | None = None
+        self.vivaldi = next(band for band in self.bands if band.key == "vivaldi")
+
+    def snapshot(self) -> dict:
+        data = super().snapshot()
+        data["mode"] = "live"
+        data["source"] = "HackRF One via hackrf_sweep, Vivaldi antenna"
+        data["active_antenna"] = "vivaldi"
+        return data
+
+    def stop(self) -> None:
+        self.running = False
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        if self.thread:
+            self.thread.join(timeout=2)
+
+    def _loop(self) -> None:
+        cmd = [
+            "hackrf_sweep",
+            "-f",
+            f"{self.start_mhz}:{self.stop_mhz}",
+            "-w",
+            str(self.bin_width_hz),
+            "-l",
+            str(self.lna_gain),
+            "-g",
+            str(self.vga_gain),
+            "-a",
+            str(self.amp),
+        ]
+
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        current_row = self._noise_row()
+        last_flush = time.monotonic()
+
+        assert self.process.stdout is not None
+        while self.running:
+            line = self.process.stdout.readline()
+            if not line:
+                if self.process.poll() is not None:
+                    break
+                time.sleep(0.05)
+                continue
+
+            parsed = self._parse_sweep_line(line)
+            if parsed is None:
+                continue
+
+            hz_low, hz_high, bin_width_hz, powers = parsed
+            self._merge_sweep_segment(current_row, hz_low, hz_high, bin_width_hz, powers)
+
+            now = time.monotonic()
+            if now - last_flush >= 0.45:
+                self._publish_vivaldi_row(current_row)
+                current_row = self._noise_row()
+                last_flush = now
+
+        self._mark_error_if_needed()
+
+    def _parse_sweep_line(self, line: str) -> tuple[int, int, float, list[float]] | None:
+        try:
+            fields = next(csv.reader([line.strip()]))
+            if len(fields) < 7:
+                return None
+            hz_low = int(fields[2])
+            hz_high = int(fields[3])
+            bin_width_hz = float(fields[4])
+            powers = [float(value) for value in fields[6:]]
+            return hz_low, hz_high, bin_width_hz, powers
+        except (ValueError, csv.Error):
+            return None
+
+    def _merge_sweep_segment(
+        self,
+        row: list[float],
+        hz_low: int,
+        hz_high: int,
+        bin_width_hz: float,
+        powers: list[float],
+    ) -> None:
+        del hz_high
+        for index, power_db in enumerate(powers):
+            freq_mhz = (hz_low + index * bin_width_hz) / 1_000_000
+            if not (self.vivaldi.low_mhz <= freq_mhz <= self.vivaldi.high_mhz):
+                continue
+            bin_index = self._freq_to_bin(freq_mhz, self.vivaldi.low_mhz, self.vivaldi.high_mhz)
+            row[bin_index] = max(row[bin_index], self._normalize_db(power_db))
+
+    def _publish_vivaldi_row(self, row: list[float]) -> None:
+        peaks = self._find_peaks(row, self.vivaldi)
+        with self.lock:
+            self.vivaldi.rows.append(row)
+            ml_result = self.classifier.classify(list(self.vivaldi.rows))
+            suspicious = bool(ml_result["drone_like"] and peaks)
+            self.vivaldi.peaks = peaks[:6]
+            self.vivaldi.suspicious = suspicious
+            self.vivaldi.drones_estimate = min(3, max(1, len(peaks) // 2)) if suspicious else 0
+            self.vivaldi.last_scan_ts = time.time()
+            self.vivaldi.status = "live suspicious" if suspicious else "live scan"
+            self.vivaldi.ml_result = ml_result
+
+            for band in self.bands:
+                if band.key != "vivaldi":
+                    band.status = "not connected"
+                    band.ml_result = {"label": "offline", "confidence": 1.0, "drone_like": False}
+
+    def _find_peaks(self, row: list[float], band: AntennaBand) -> list[dict]:
+        threshold = 0.58
+        peaks = []
+        in_cluster = False
+        cluster_start = 0
+
+        for index, value in enumerate(row + [0.0]):
+            if value >= threshold and not in_cluster:
+                in_cluster = True
+                cluster_start = index
+            elif value < threshold and in_cluster:
+                cluster_end = index - 1
+                center = (cluster_start + cluster_end) // 2
+                freq_mhz = band.low_mhz + (center / max(1, len(row) - 1)) * (band.high_mhz - band.low_mhz)
+                peak_power = max(row[cluster_start : cluster_end + 1])
+                peaks.append(
+                    {
+                        "freq_mhz": round(freq_mhz, 3),
+                        "power_db": round(self._denormalize_db(peak_power), 1),
+                        "type": "new/hopping energy",
+                    }
+                )
+                in_cluster = False
+
+        return peaks
+
+    def _normalize_db(self, power_db: float) -> float:
+        return max(0.0, min(1.0, (power_db + 105.0) / 65.0))
+
+    def _denormalize_db(self, value: float) -> float:
+        return value * 65.0 - 105.0
+
+    def _mark_error_if_needed(self) -> None:
+        with self.lock:
+            if self.process and self.process.returncode not in (None, 0):
+                self.vivaldi.status = "hackrf error"
+
+
+def create_app(demo_signals: bool = False, hackrf_vivaldi: bool = False) -> Flask:
     bands = [
         AntennaBand(
             key="yagi",
@@ -213,7 +392,10 @@ def create_app(demo_signals: bool = False) -> Flask:
         ),
     ]
 
-    backend = DetectionBackend(bands, demo_signals=demo_signals)
+    if hackrf_vivaldi:
+        backend = HackRFVivaldiBackend(bands)
+    else:
+        backend = DetectionBackend(bands, demo_signals=demo_signals)
     backend.start()
 
     app = Flask(__name__)
@@ -230,7 +412,7 @@ def create_app(demo_signals: bool = False) -> Flask:
     def health():
         return jsonify({
             "ok": True,
-            "mode": "demo" if demo_signals else "offline",
+            "mode": "live" if hackrf_vivaldi else "demo" if demo_signals else "offline",
             "ml_enabled": True,
         })
 
@@ -246,9 +428,14 @@ def main() -> None:
         action="store_true",
         help="Show synthetic drone-like signals for UI demonstration",
     )
+    parser.add_argument(
+        "--hackrf-vivaldi",
+        action="store_true",
+        help="Use real HackRF sweep data for the Vivaldi 2-6 GHz slot",
+    )
     args = parser.parse_args()
 
-    app = create_app(demo_signals=args.demo_signals)
+    app = create_app(demo_signals=args.demo_signals, hackrf_vivaldi=args.hackrf_vivaldi)
     app.run(host=args.host, port=args.port, debug=False)
 
 

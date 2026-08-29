@@ -74,6 +74,17 @@ For UI testing with fake drone-like signals:
 python antenna_dashboard.py --demo-signals
 ```
 
+For real Vivaldi + HackRF scanning:
+
+```bash
+python antenna_dashboard.py --hackrf-vivaldi
+```
+
+Close Gqrx before running live mode because only one program can use the HackRF
+at a time. Live mode currently feeds real `hackrf_sweep` spectrum data into the
+Vivaldi waterfall slot from 2.4 GHz to 6 GHz. The Yagi and LPDA slots remain
+marked as not connected until MUX control is added.
+
 ## Next Build Steps
 
 1. Add real HackRF receive capture.
