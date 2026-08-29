@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Antenna Drone Detection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Antenna Drone Detection</h1>
+          <p>Yagi-Uda, LPDA, and Vivaldi waterfall scanner</p>
+        </div>
+        <section id="alertPanel" class="alert-panel quiet">
+          <span class="alert-label">Status</span>
+          <strong id="alertText">Scanning</strong>
+          <span id="countText">0 suspected drones</span>
+        </section>
+      </header>
+
+      <section class="actions" aria-label="Detection controls">
+        <button class="action-button active" type="button">Antenna Scan</button>
+        <button class="action-button" type="button">RFID Detection</button>
+        <button class="action-button" type="button">Video Detection</button>
+        <button class="action-button" type="button">Optimization</button>
+      </section>
+
+      <section id="waterfalls" class="waterfall-grid" aria-label="Waterfall graphs"></section>
+
+      <section class="event-strip">
+        <h2>Suspicious Signal Log</h2>
+        <div id="eventLog" class="event-log"></div>
+      </section>
+    </main>
+
+    <template id="waterfallTemplate">
+      <article class="waterfall-card">
+        <div class="card-head">
+          <div>
+            <h2 data-field="label"></h2>
+            <p data-field="antenna"></p>
+          </div>
+          <span class="pill" data-field="status"></span>
+        </div>
+        <canvas width="640" height="360"></canvas>
+        <div class="scale-row">
+          <span data-field="low"></span>
+          <span data-field="range"></span>
+          <span data-field="high"></span>
+        </div>
+        <div class="meta-row">
+          <span data-field="mux"></span>
+          <span data-field="peaks"></span>
+        </div>
+      </article>
+    </template>
+
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+  </body>
+</html>

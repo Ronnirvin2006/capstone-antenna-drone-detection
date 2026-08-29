@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+logs/*.log
+logs/*.log.*
+logs/*.jsonl
+*.iq
+*.raw
+*.wav

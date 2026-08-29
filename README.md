@@ -1,207 +1,82 @@
-# Anti-Drone System — Integration Guide
+# Antenna Drone Detection System
 
-Stealth Jammer System for Drone Signal Denial & Control  
-Capstone Project — MIT Anna University × AIAERO INDIA PVT LTD
+Interactive SDR dashboard for detecting suspicious drone-like RF activity using
+three fabricated antennas connected through an RF MUX to a HackRF One.
 
----
+This repository was copied from the earlier capstone anti-drone system and is
+now being continued as a receive-only detection project. The old modules are
+kept as reference code, but the new application entry point is
+`antenna_dashboard.py`.
 
-## Project Structure
+## Current Hardware Plan
 
-```
-anti_drone_system/
-│
-├── main.py                          ← Entry point. Wires all modules together.
-│
-├── requirements.txt                 ← pip install -r requirements.txt
-│
-├── config/
-│   └── system_config.yaml           ← ALL tunable parameters live here.
-│                                      No hard-coded values anywhere else.
-│
-├── modules/
-│   ├── shared/
-│   │   ├── event_bus.py             ← Central pub/sub message backbone.
-│   │   ├── config_loader.py         ← Loads system_config.yaml safely.
-│   │   └── logger_setup.py          ← Rotating file + console + JSON logs.
-│   │
-│   ├── mux/
-│   │   └── mux_controller.py        ← RF MUX GPIO switching + lock-on logic.
-│   │
-│   ├── sdr/
-│   │   └── sdr_pipeline.py          ← ADALM-Pluto FMCW radar + FFT range est.
-│   │
-│   ├── visual/
-│   │   ├── drone_tracker.py         ← Your original ByteTrack script (unchanged).
-│   │   └── visual_pipeline.py       ← Modular wrapper that publishes bus events.
-│   │
-│   ├── identity/
-│   │   └── identity_classifier.py   ← Reads ESP32 serial → classifies drone.
-│   │
-│   ├── fusion/
-│   │   └── fusion_engine.py         ← Correlates SDR + visual in time window.
-│   │
-│   └── jammer/
-│       └── jammer_controller.py     ← Safety-gated GPIO jammer activation.
-│
-├── esp32_firmware/
-│   └── esp32_ble_scanner.ino        ← Arduino sketch for ESP32 BLE scanning.
-│
-├── models/
-│   └── weights/
-│       └── best/                    ← Your YOLOv11n weights (extracted from zip).
-│
-├── data/
-│   └── friendly_ids/
-│       └── authorised_drones.json   ← Whitelist of friendly drone/operator IDs.
-│
-└── logs/                            ← Auto-created. system.log + events.jsonl
+```text
+Yagi-Uda 433 MHz      \
+LPDA 915 MHz-1.6 GHz  -> RF MUX -> HackRF One -> Laptop/System
+Vivaldi 2 GHz-6 GHz  /
 ```
 
----
+The HackRF can observe only one MUX path at a time, so the dashboard displays
+three waterfall slots and updates them in a scan sequence.
 
-## How the Modules Communicate
+## Antenna Bands
 
-All modules talk through the **Event Bus** (`modules/shared/event_bus.py`).  
-No module imports another module directly.
-
-```
-ESP32 (BLE scan)
-    │  USB Serial JSON
-    ▼
-IdentityClassifier ──────────────────────────────► "identity.result"
-                                                          │
-                                                          ▼
-Antenna Array                                      JammerController
-    │                                               (needs BOTH:
-    ▼                                               fusion.confirmed
-MUXController ──► ADALM-Pluto SDR                  AND identity result
-    │  (lock-on)       │                            = NON_FRIENDLY)
-    │                  ▼
-    │           SDRPipeline ──► "sdr.detection"
-    │                                 │
-    │                                 ▼
-    │           VisualPipeline ──► "visual.detection"
-    │           (YOLOv11n +              │
-    │            ByteTrack)              ▼
-    │                            FusionEngine ──► "fusion.confirmed"
-    │                                                     │
-    └────────────────────────────────────────────────────-┘
-                                              (lock-on feedback to MUX)
-```
-
-**Topics published on the bus:**
-
-| Topic | Published by | Payload |
+| Slot | Antenna | Main Use |
 |---|---|---|
-| `sdr.detection` | SDRPipeline | `{range_m, rssi_db, freq_hz, ts}` |
-| `visual.detection` | VisualPipeline | `{track_id, bbox, confidence, range_est_m, ts}` |
-| `identity.result` | IdentityClassifier | `{drone_id, label, rssi, reason, raw, ts}` |
-| `fusion.confirmed` | FusionEngine | `{range_m, sdr_fresh, visual_fresh, ts}` |
-| `mux.lock` | MUXController | `{antenna, lock}` |
-| `jammer.trigger` | JammerController | `{activate, reason, freq_hz, ts}` |
+| Yagi-Uda 433 | 433 MHz directional antenna | 433 MHz telemetry / ISM activity |
+| LPDA 915-1600 | 915 MHz to 1.6 GHz LPDA | 915 MHz, GNSS bands, other low-band links |
+| Vivaldi 2-6 GHz | 2 GHz to 6 GHz Vivaldi | 2.4 GHz and 5.8 GHz drone/control/video activity |
 
----
+## Run The Dashboard
 
-## Quickstart
-
-### 1. Install dependencies
+Create a virtual environment if needed:
 
 ```bash
-cd anti_drone_system
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-On Raspberry Pi, also uncomment `RPi.GPIO` in `requirements.txt`.
-
-### 2. Flash the ESP32
-
-Open `esp32_firmware/esp32_ble_scanner.ino` in Arduino IDE.  
-Select board: **ESP32 Dev Module**.  Upload.  
-Verify output on Serial Monitor @ 115200 baud — you should see JSON lines.
-
-### 3. Configure
-
-Edit `config/system_config.yaml`:
-- Set `sdr.device_uri` to your Pluto's IP or USB URI.
-- Set `identity.serial_port` to your ESP32's port (e.g. `/dev/ttyUSB0`).
-- Set `visual.model_path` to `models/weights/best.pt` (already placed).
-- Set `mux.antennas` GPIO pin numbers to match your hardware wiring.
-- Add your authorised drone IDs to `data/friendly_ids/authorised_drones.json`.
-
-### 4. Run
+For the current dashboard only, use the lightweight install:
 
 ```bash
-python main.py
+pip install -r requirements-dashboard.txt
 ```
 
-To test without any hardware (all modules in simulation mode):
+Start the app:
+
 ```bash
-python main.py --sim
+python antenna_dashboard.py
 ```
 
----
+Open:
 
-## Tuning Parameters (system_config.yaml)
-
-| Parameter | Default | Effect |
-|---|---|---|
-| `mux.scan_interval_sec` | 10 | How long each antenna is active during round-robin |
-| `mux.lock_drop_threshold_sec` | 3 | Seconds of silence before MUX unlocks |
-| `sdr.range_detect_threshold` | 0.15 | FFT amplitude floor for detection (0–1) |
-| `sdr.max_range_m` | 500 | Detections beyond this are ignored |
-| `visual.confidence_threshold` | 0.30 | YOLO minimum confidence |
-| `fusion.window_sec` | 2.0 | Sliding window for SDR+visual correlation |
-| `fusion.require_both` | true | Both sensors must agree to confirm |
-| `jammer.cooldown_sec` | 5 | Min time between jammer activations |
-| `jammer.max_active_sec` | 30 | Hard auto-shutoff (safety interlock) |
-| `identity.unknown_is_threat` | true | Treat drones with no BLE ID as hostile |
-
----
-
-## Adding or Disabling a Module
-
-**Disable visual:** In `main.py`, comment out `visual.start()` and the `visual.detection` subscription.  
-**Disable SDR:** Comment out `sdr_thread.start()`.  
-**Add a new sensor:** Create `modules/new_sensor/new_sensor.py`, publish events to the bus, subscribe to whatever topics you need.  
-**Run identity classifier standalone:**
-```python
-from modules.shared.event_bus import EventBus
-from modules.identity.identity_classifier import IdentityClassifier
-bus = EventBus()
-ic = IdentityClassifier(cfg["identity"], bus)
-ic.start()
+```text
+http://127.0.0.1:8080
 ```
 
----
+## What Works Now
 
-## Log Files (auto-created in `logs/`)
+- Three live waterfall graph slots.
+- Round-robin MUX-style scanning model.
+- Suspicious hopping/new-signal alert panel.
+- Estimated suspected drone count placeholder.
+- Buttons for Antenna Scan, RFID Detection, Video Detection, and Optimization.
 
-| File | Format | Contents |
-|---|---|---|
-| `system.log` | Plain text | All modules, rotating 10 MB × 5 |
-| `events.jsonl` | JSON Lines | One structured JSON per event — parseable with pandas |
-| `tracked_output.mp4` | Video | Annotated drone tracking video |
+The current backend uses simulation data so the interface can be developed
+before the live HackRF/MUX processing is wired in.
 
-Parse events post-mission:
-```python
-import json, pandas as pd
-events = [json.loads(l) for l in open("logs/events.jsonl")]
-df = pd.DataFrame(events)
-```
+## Next Build Steps
 
----
+1. Add real HackRF receive capture.
+2. Add Arduino/Raspberry Pi MUX control for antenna selection.
+3. Detect new/hopping signals using baseline noise and peak tracking.
+4. Estimate number of suspicious emitters from separated signal clusters.
+5. Implement RFID/Remote ID and video detection buttons as live modules.
 
-## ESP32 Firmware Notes
+## Earlier Capstone Reference
 
-The firmware in `esp32_firmware/esp32_ble_scanner.ino` scans for BLE advertisements
-matching either:
-- **Service UUID 0xFFFA** (ASTM F3411 OpenDroneID BT4 legacy format)
-- **Company ID 0x02E5 + App Code 0x0D** (manufacturer-specific data format)
-
-Each detected packet is sent as a single-line JSON object over USB serial.  
-The Python `IdentityClassifier` reads this with `readline()`.
-
-Message types decoded: `BasicID`, `Location`, `Auth`, `SelfID`, `System`, `OperatorID`, `MessagePack`.
-
-For the full OpenDroneID C library (encode/decode all fields), see:  
-https://github.com/opendroneid/opendroneid-core-c
+The original capstone report covered drone tracking, antenna fabrication, SDR
+radar, Remote ID, and jamming. This continued project is changing direction:
+the final system will focus on receive-only detection and alerting from antenna
+signals.
