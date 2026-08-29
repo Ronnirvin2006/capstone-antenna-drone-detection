@@ -48,7 +48,7 @@ class PrototypeSignalClassifier:
             "label": label,
             "confidence": round(confidence, 3),
             "features": features.__dict__,
-            "drone_like": label == "drone_like" and confidence >= 0.52,
+            "drone_like": label in {"drone", "drone_like"} and confidence >= 0.52,
         }
 
     def _synthetic_noise(self) -> SignalFeatures:
@@ -165,7 +165,10 @@ def extract_features(rows: list[list[float]]) -> SignalFeatures:
     recent = rows[-24:]
     bins = len(recent[0])
     column_max = [max(row[col] for row in recent) for col in range(bins)]
-    threshold = 0.42
+    flat = [value for row in recent for value in row]
+    mean_value = sum(flat) / len(flat)
+    variance = sum((value - mean_value) ** 2 for value in flat) / len(flat)
+    threshold = min(0.98, max(0.35, mean_value + (variance ** 0.5) * 2.2))
     active_columns = [index for index, value in enumerate(column_max) if value >= threshold]
 
     peak_count = _count_clusters(active_columns)
@@ -210,6 +213,37 @@ def _average_features(values: list[SignalFeatures]) -> SignalFeatures:
         hopping_score=sum(v.hopping_score for v in values) / count,
         burstiness=sum(v.burstiness for v in values) / count,
     )
+
+
+def normalize_db_row(raw_db_row: list[float | None]) -> list[float]:
+    """Convert HackRF dB bins to 0..1 using per-row robust contrast."""
+    filled = [value for value in raw_db_row if value is not None]
+    if not filled:
+        return [0.0 for _ in raw_db_row]
+
+    ordered = sorted(filled)
+    low = _percentile(ordered, 15)
+    high = _percentile(ordered, 98)
+    if high - low < 3.0:
+        high = low + 3.0
+
+    normalized = []
+    for value in raw_db_row:
+        if value is None:
+            normalized.append(0.0)
+        else:
+            normalized.append(max(0.0, min(1.0, (value - low) / (high - low))))
+    return normalized
+
+
+def _percentile(ordered: list[float], percent: float) -> float:
+    if not ordered:
+        return 0.0
+    index = (len(ordered) - 1) * percent / 100.0
+    lower = int(index)
+    upper = min(lower + 1, len(ordered) - 1)
+    blend = index - lower
+    return ordered[lower] * (1 - blend) + ordered[upper] * blend
 
 
 def _count_clusters(indexes: list[int]) -> int:

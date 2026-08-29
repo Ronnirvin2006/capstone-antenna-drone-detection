@@ -22,6 +22,7 @@ def main() -> None:
 
     data_dir = Path(args.data_dir)
     samples: list[tuple[str, SignalFeatures]] = []
+    skipped_saturated = 0
 
     for path in sorted(data_dir.glob("*.jsonl")):
         with path.open("r", encoding="utf-8") as fh:
@@ -30,14 +31,25 @@ def main() -> None:
                 label = record["label"]
                 if label in {"controller", "wifi"}:
                     label = "background"
-                samples.append((label, SignalFeatures(**record["features"])))
+                features = SignalFeatures(**record["features"])
+                if features.occupied_ratio > 0.9 and features.peak_power >= 0.99:
+                    skipped_saturated += 1
+                    continue
+                samples.append((label, features))
 
     if not samples:
+        if skipped_saturated:
+            raise SystemExit(
+                f"No usable training data found in {data_dir}. "
+                f"Skipped {skipped_saturated} saturated windows. "
+                "Record again with the updated collector."
+            )
         raise SystemExit(f"No training data found in {data_dir}")
 
     model = save_prototype_model(samples, args.model_path)
     print(f"Saved model: {args.model_path}")
     print(f"Samples: {model['sample_count']}")
+    print(f"Skipped saturated samples: {skipped_saturated}")
     print(f"Labels: {', '.join(model['labels'])}")
 
 

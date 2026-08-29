@@ -25,7 +25,7 @@ from typing import Deque
 
 from flask import Flask, jsonify, render_template
 
-from modules.signal_detection.ml_detector import TrainedSignalClassifier
+from modules.signal_detection.ml_detector import TrainedSignalClassifier, normalize_db_row
 
 
 @dataclass
@@ -249,7 +249,7 @@ class HackRFVivaldiBackend(DetectionBackend):
             bufsize=1,
         )
 
-        current_row = self._noise_row()
+        current_row: list[float | None] = [None] * self.bins
         last_flush = time.monotonic()
 
         assert self.process.stdout is not None
@@ -271,7 +271,7 @@ class HackRFVivaldiBackend(DetectionBackend):
             now = time.monotonic()
             if now - last_flush >= 0.45:
                 self._publish_vivaldi_row(current_row)
-                current_row = self._noise_row()
+                current_row = [None] * self.bins
                 last_flush = now
 
         self._mark_error_if_needed()
@@ -291,7 +291,7 @@ class HackRFVivaldiBackend(DetectionBackend):
 
     def _merge_sweep_segment(
         self,
-        row: list[float],
+        row: list[float | None],
         hz_low: int,
         hz_high: int,
         bin_width_hz: float,
@@ -303,9 +303,11 @@ class HackRFVivaldiBackend(DetectionBackend):
             if not (self.vivaldi.low_mhz <= freq_mhz <= self.vivaldi.high_mhz):
                 continue
             bin_index = self._freq_to_bin(freq_mhz, self.vivaldi.low_mhz, self.vivaldi.high_mhz)
-            row[bin_index] = max(row[bin_index], self._normalize_db(power_db))
+            previous = row[bin_index]
+            row[bin_index] = power_db if previous is None else max(previous, power_db)
 
-    def _publish_vivaldi_row(self, row: list[float]) -> None:
+    def _publish_vivaldi_row(self, raw_row: list[float | None]) -> None:
+        row = normalize_db_row(raw_row)
         peaks = self._find_peaks(row, self.vivaldi)
         with self.lock:
             self.vivaldi.rows.append(row)
@@ -348,9 +350,6 @@ class HackRFVivaldiBackend(DetectionBackend):
                 in_cluster = False
 
         return peaks
-
-    def _normalize_db(self, power_db: float) -> float:
-        return max(0.0, min(1.0, (power_db + 105.0) / 65.0))
 
     def _denormalize_db(self, value: float) -> float:
         return value * 65.0 - 105.0

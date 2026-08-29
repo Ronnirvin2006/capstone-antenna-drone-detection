@@ -8,3 +8,5 @@ logs/*.jsonl
 *.iq
 *.raw
 *.wav
+data/rf_captures/*.jsonl
+models/signal_classifier.json

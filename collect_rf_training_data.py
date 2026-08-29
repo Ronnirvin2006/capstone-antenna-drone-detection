@@ -16,7 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from modules.signal_detection.ml_detector import extract_features
+from modules.signal_detection.ml_detector import extract_features, normalize_db_row
 
 
 def parse_sweep_line(line: str):
@@ -35,10 +35,6 @@ def parse_sweep_line(line: str):
 def freq_to_bin(freq_mhz: float, low_mhz: float, high_mhz: float, bins: int) -> int:
     clamped = min(max(freq_mhz, low_mhz), high_mhz)
     return int((clamped - low_mhz) / (high_mhz - low_mhz) * (bins - 1))
-
-
-def normalize_db(power_db: float) -> float:
-    return max(0.0, min(1.0, (power_db + 105.0) / 65.0))
 
 
 def main() -> None:
@@ -81,7 +77,7 @@ def main() -> None:
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     rows: list[list[float]] = []
-    current_row = [0.0] * args.bins
+    current_row: list[float | None] = [None] * args.bins
     last_flush = time.monotonic()
     end_time = time.monotonic() + args.seconds
     saved = 0
@@ -108,13 +104,14 @@ def main() -> None:
                     if not (args.start_mhz <= freq_mhz <= args.stop_mhz):
                         continue
                     bin_index = freq_to_bin(freq_mhz, args.start_mhz, args.stop_mhz, args.bins)
-                    current_row[bin_index] = max(current_row[bin_index], normalize_db(power_db))
+                    previous = current_row[bin_index]
+                    current_row[bin_index] = power_db if previous is None else max(previous, power_db)
 
                 now = time.monotonic()
                 if now - last_flush >= 0.45:
-                    rows.append(current_row)
+                    rows.append(normalize_db_row(current_row))
                     rows = rows[-args.window_rows :]
-                    current_row = [0.0] * args.bins
+                    current_row = [None] * args.bins
                     last_flush = now
 
                     if len(rows) == args.window_rows:
