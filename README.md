@@ -93,6 +93,43 @@ marked as not connected until MUX control is added.
 4. Estimate number of suspicious emitters from separated signal clusters.
 5. Implement RFID/Remote ID and video detection buttons as live modules.
 
+## Train With Your Drone
+
+Close the dashboard before recording training data. Gqrx must also be closed.
+
+Record background first:
+
+```bash
+python collect_rf_training_data.py --label background --seconds 30
+```
+
+Then turn on the controller and drone, keep the antenna pointed at it, and run:
+
+```bash
+python collect_rf_training_data.py --label drone --seconds 30
+```
+
+Optional negative examples help reduce false alerts:
+
+```bash
+python collect_rf_training_data.py --label controller --seconds 30
+python collect_rf_training_data.py --label wifi --seconds 30
+```
+
+Train the model:
+
+```bash
+python train_signal_classifier.py
+```
+
+Then start live scanning:
+
+```bash
+python antenna_dashboard.py --hackrf-vivaldi
+```
+
+The dashboard automatically uses `models/signal_classifier.json` when it exists.
+
 ## Earlier Capstone Reference
 
 The original capstone report covered drone tracking, antenna fabrication, SDR

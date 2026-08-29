@@ -25,7 +25,7 @@ from typing import Deque
 
 from flask import Flask, jsonify, render_template
 
-from modules.signal_detection.ml_detector import PrototypeSignalClassifier
+from modules.signal_detection.ml_detector import TrainedSignalClassifier
 
 
 @dataclass
@@ -58,7 +58,7 @@ class DetectionBackend:
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
         self.started_at = time.monotonic()
-        self.classifier = PrototypeSignalClassifier()
+        self.classifier = TrainedSignalClassifier()
 
         for band in self.bands:
             for _ in range(band.rows.maxlen):

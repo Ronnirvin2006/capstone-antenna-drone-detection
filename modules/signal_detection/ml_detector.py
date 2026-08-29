@@ -9,8 +9,10 @@ real HackRF captures later.
 from __future__ import annotations
 
 import math
+import json
 import random
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,61 @@ class PrototypeSignalClassifier:
         return math.sqrt(total)
 
 
+class TrainedSignalClassifier(PrototypeSignalClassifier):
+    """Nearest-prototype classifier loaded from recorded RF training data."""
+
+    def __init__(self, model_path: str | Path = "models/signal_classifier.json") -> None:
+        self.model_path = Path(model_path)
+        if self.model_path.exists():
+            with self.model_path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            self.prototypes = {
+                label: SignalFeatures(**values)
+                for label, values in payload["prototypes"].items()
+            }
+            self.labels = payload.get("labels", sorted(self.prototypes))
+            self.trained = True
+        else:
+            super().__init__()
+            self.labels = sorted(self.prototypes)
+            self.trained = False
+
+    def classify(self, rows: list[list[float]]) -> dict:
+        result = super().classify(rows)
+        result["model"] = "trained" if self.trained else "prototype"
+        return result
+
+
+def save_prototype_model(samples: list[tuple[str, SignalFeatures]], model_path: str | Path) -> dict:
+    grouped: dict[str, list[SignalFeatures]] = {}
+    for label, features in samples:
+        grouped.setdefault(label, []).append(features)
+
+    if "drone" not in grouped:
+        raise ValueError("Need at least one sample labeled 'drone'")
+    if "background" not in grouped:
+        raise ValueError("Need at least one sample labeled 'background'")
+
+    prototypes = {
+        label: _average_features(values).__dict__
+        for label, values in grouped.items()
+    }
+
+    payload = {
+        "model_type": "nearest_prototype_rf_features",
+        "labels": sorted(prototypes),
+        "sample_count": {label: len(values) for label, values in grouped.items()},
+        "prototypes": prototypes,
+    }
+
+    model_path = Path(model_path)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    with model_path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+        fh.write("\n")
+    return payload
+
+
 def extract_features(rows: list[list[float]]) -> SignalFeatures:
     if not rows or not rows[0]:
         return SignalFeatures(0, 0, 0, 0, 0)
@@ -141,6 +198,17 @@ def extract_features(rows: list[list[float]]) -> SignalFeatures:
         occupied_ratio=occupied_ratio,
         hopping_score=hopping_score,
         burstiness=burstiness,
+    )
+
+
+def _average_features(values: list[SignalFeatures]) -> SignalFeatures:
+    count = len(values)
+    return SignalFeatures(
+        peak_count=sum(v.peak_count for v in values) / count,
+        peak_power=sum(v.peak_power for v in values) / count,
+        occupied_ratio=sum(v.occupied_ratio for v in values) / count,
+        hopping_score=sum(v.hopping_score for v in values) / count,
+        burstiness=sum(v.burstiness for v in values) / count,
     )
 
 
