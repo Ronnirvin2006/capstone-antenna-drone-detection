@@ -176,12 +176,17 @@ canvas {
 }
 
 .scale-row,
-.meta-row {
+.meta-row,
+.ml-row {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   padding-top: 9px;
   font-size: 12px;
+}
+
+.ml-row {
+  color: var(--yellow);
 }
 
 .event-strip {

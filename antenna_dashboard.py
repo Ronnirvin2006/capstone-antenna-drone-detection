@@ -14,7 +14,6 @@ the UI can be developed and tested before the live HackRF integration is added.
 from __future__ import annotations
 
 import argparse
-import math
 import random
 import threading
 import time
@@ -23,6 +22,8 @@ from dataclasses import dataclass, field
 from typing import Deque
 
 from flask import Flask, jsonify, render_template
+
+from modules.signal_detection.ml_detector import PrototypeSignalClassifier
 
 
 @dataclass
@@ -40,19 +41,22 @@ class AntennaBand:
     drones_estimate: int = 0
     last_scan_ts: float = 0.0
     status: str = "waiting"
+    ml_result: dict = field(default_factory=dict)
 
 
-class DetectionSimulator:
-    """Produces waterfall rows shaped like RF activity for UI development."""
+class DetectionBackend:
+    """Produces waterfall rows until the real HackRF backend is connected."""
 
-    def __init__(self, bands: list[AntennaBand], bins: int = 160):
+    def __init__(self, bands: list[AntennaBand], bins: int = 160, demo_signals: bool = False):
         self.bands = bands
         self.bins = bins
+        self.demo_signals = demo_signals
         self.scan_index = 0
         self.running = False
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
         self.started_at = time.monotonic()
+        self.classifier = PrototypeSignalClassifier()
 
         for band in self.bands:
             for _ in range(band.rows.maxlen):
@@ -82,6 +86,9 @@ class DetectionSimulator:
             ]
             return {
                 "active_antenna": active,
+                "mode": "demo" if self.demo_signals else "offline",
+                "source": "synthetic demo generator" if self.demo_signals else "no SDR connected",
+                "ml_enabled": True,
                 "detected_count": sum(item["estimated_drones"] for item in detections),
                 "alert": bool(detections),
                 "detections": detections,
@@ -98,20 +105,34 @@ class DetectionSimulator:
 
     def _scan_band(self, band: AntennaBand) -> None:
         row = self._noise_row()
-        elapsed = time.monotonic() - self.started_at
 
         peaks = []
-        suspicious = False
 
+        if self.demo_signals:
+            peaks = self._add_demo_activity(row, band)
+
+        band.rows.append(row)
+        ml_result = self.classifier.classify(list(band.rows))
+        suspicious = bool(ml_result["drone_like"] and peaks)
+        band.peaks = peaks[:4]
+        band.suspicious = suspicious
+        band.drones_estimate = min(3, max(1, len(peaks) // 2)) if suspicious else 0
+        band.last_scan_ts = time.time()
+        band.status = "suspicious" if suspicious else "offline scan"
+        band.ml_result = ml_result
+
+    def _add_demo_activity(self, row: list[float], band: AntennaBand) -> list[dict]:
+        peaks = []
+        elapsed = time.monotonic() - self.started_at
         for idx, freq in enumerate(band.watch_mhz):
-            signal_probability = 0.12
+            signal_probability = 0.08
             if band.key == "vivaldi":
-                signal_probability = 0.33
+                signal_probability = 0.28
             if band.key == "yagi":
-                signal_probability = 0.18
+                signal_probability = 0.14
 
-            hopping_phase = math.sin(elapsed * (0.7 + idx * 0.17) + idx)
-            is_active = hopping_phase > 0.62 or random.random() < signal_probability
+            hopping_phase = random.random() + 0.35 * ((elapsed * (idx + 1)) % 1)
+            is_active = hopping_phase > 0.78 or random.random() < signal_probability
             if not is_active:
                 continue
 
@@ -123,19 +144,10 @@ class DetectionSimulator:
                 {
                     "freq_mhz": round(freq + random.uniform(-0.35, 0.35), 3),
                     "power_db": round(-82 + strength * 45, 1),
-                    "type": "hopping burst" if len(peaks) % 2 == 0 else "new carrier",
+                    "type": "demo hopping burst" if len(peaks) % 2 == 0 else "demo new carrier",
                 }
             )
-
-        if len(peaks) >= 2:
-            suspicious = True
-
-        band.rows.append(row)
-        band.peaks = peaks[:4]
-        band.suspicious = suspicious
-        band.drones_estimate = min(3, max(1, len(peaks) // 2)) if suspicious else 0
-        band.last_scan_ts = time.time()
-        band.status = "suspicious" if suspicious else "scanning"
+        return peaks
 
     def _band_payload(self, band: AntennaBand) -> dict:
         return {
@@ -152,6 +164,7 @@ class DetectionSimulator:
             "drones_estimate": band.drones_estimate,
             "last_scan_ts": band.last_scan_ts,
             "status": band.status,
+            "ml_result": band.ml_result,
         }
 
     def _noise_row(self) -> list[float]:
@@ -169,7 +182,7 @@ class DetectionSimulator:
         return int((clamped - low) / (high - low) * (self.bins - 1))
 
 
-def create_app() -> Flask:
+def create_app(demo_signals: bool = False) -> Flask:
     bands = [
         AntennaBand(
             key="yagi",
@@ -200,8 +213,8 @@ def create_app() -> Flask:
         ),
     ]
 
-    simulator = DetectionSimulator(bands)
-    simulator.start()
+    backend = DetectionBackend(bands, demo_signals=demo_signals)
+    backend.start()
 
     app = Flask(__name__)
 
@@ -211,11 +224,15 @@ def create_app() -> Flask:
 
     @app.get("/api/state")
     def state():
-        return jsonify(simulator.snapshot())
+        return jsonify(backend.snapshot())
 
     @app.get("/api/health")
     def health():
-        return jsonify({"ok": True, "mode": "simulation"})
+        return jsonify({
+            "ok": True,
+            "mode": "demo" if demo_signals else "offline",
+            "ml_enabled": True,
+        })
 
     return app
 
@@ -224,9 +241,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the antenna detection dashboard")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument(
+        "--demo-signals",
+        action="store_true",
+        help="Show synthetic drone-like signals for UI demonstration",
+    )
     args = parser.parse_args()
 
-    app = create_app()
+    app = create_app(demo_signals=args.demo_signals)
     app.run(host=args.host, port=args.port, debug=False)
 
 

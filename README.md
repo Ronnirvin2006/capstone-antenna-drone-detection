@@ -59,12 +59,20 @@ http://127.0.0.1:8080
 
 - Three live waterfall graph slots.
 - Round-robin MUX-style scanning model.
-- Suspicious hopping/new-signal alert panel.
-- Estimated suspected drone count placeholder.
+- Clear offline/demo mode indicator.
+- ML-style waterfall classifier for noise, steady carrier, and drone-like hopping patterns.
+- Suspicious hopping/new-signal alert panel in demo mode.
+- Estimated suspected drone count placeholder for later real SDR integration.
 - Buttons for Antenna Scan, RFID Detection, Video Detection, and Optimization.
 
-The current backend uses simulation data so the interface can be developed
-before the live HackRF/MUX processing is wired in.
+By default the app starts in offline mode. It does not claim real detections
+until HackRF/MUX input is connected in the next step.
+
+For UI testing with fake drone-like signals:
+
+```bash
+python antenna_dashboard.py --demo-signals
+```
 
 ## Next Build Steps
 

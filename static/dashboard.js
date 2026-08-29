@@ -5,6 +5,7 @@ const alertPanel = document.querySelector("#alertPanel");
 const alertText = document.querySelector("#alertText");
 const countText = document.querySelector("#countText");
 const eventLog = document.querySelector("#eventLog");
+const sourceText = document.querySelector("#sourceText");
 
 function makeCard(band) {
   const fragment = template.content.cloneNode(true);
@@ -64,17 +65,25 @@ function updateCard(band, activeKey) {
   card.querySelector('[data-field="mux"]').textContent = `MUX ${band.mux_port}`;
   card.querySelector('[data-field="peaks"]').textContent =
     band.peaks.length ? `${band.peaks.length} peaks` : "no peaks";
+  const ml = band.ml_result || {};
+  const label = ml.label || "waiting";
+  const confidence = Math.round((ml.confidence || 0) * 100);
+  card.querySelector('[data-field="ml"]').textContent =
+    `ML: ${label.replace("_", " ")} / ${confidence}%`;
   drawWaterfall(card.querySelector("canvas"), band.rows);
 }
 
 function updateAlert(state) {
+  sourceText.textContent =
+    `Mode: ${state.mode.toUpperCase()} / ${state.source} / ML detector enabled`;
   alertPanel.classList.toggle("danger", state.alert);
   alertPanel.classList.toggle("quiet", !state.alert);
-  alertText.textContent = state.alert ? "Drone-like RF activity" : "Scanning";
+  alertText.textContent = state.alert ? "Drone-like RF activity" : state.mode === "offline" ? "No SDR connected" : "Scanning";
   countText.textContent = `${state.detected_count} suspected drone${state.detected_count === 1 ? "" : "s"}`;
 
   if (!state.detections.length) {
-    eventLog.innerHTML = '<div class="event-item"><span>No suspicious RF pattern currently detected.</span><span>live</span></div>';
+    const mode = state.mode === "offline" ? "connect HackRF for real detection" : "demo";
+    eventLog.innerHTML = `<div class="event-item"><span>No suspicious RF pattern currently detected.</span><span>${mode}</span></div>`;
     return;
   }
 
